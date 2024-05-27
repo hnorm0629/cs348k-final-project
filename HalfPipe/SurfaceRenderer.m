@@ -386,35 +386,41 @@
             
             @autoreleasepool
             {
+                // create command buffer to store GPU commands
                 id<MTLCommandBuffer> command_buffer = [_command_queue commandBuffer];
                 
+                // create pipeline descriptor that describes how to render geometry
                 MTLRenderPassDescriptor* pass_descriptor = [view currentRenderPassDescriptor];
                 
-                id<MTLRenderCommandEncoder> render_pass = [command_buffer renderCommandEncoderWithDescriptor: pass_descriptor];
+                // encode render pass into command buffer
+                id<MTLRenderCommandEncoder> command_encoder = [command_buffer renderCommandEncoderWithDescriptor: pass_descriptor];
                 
-                [render_pass setRenderPipelineState: _pipeline_state];
+                // configure rendering pass
+                [command_encoder setRenderPipelineState: _pipeline_state];
+                [command_encoder setFrontFacingWinding: MTLWindingCounterClockwise];
+                [command_encoder setCullMode: MTLCullModeNone];
                 
-                [render_pass setFrontFacingWinding: MTLWindingCounterClockwise];
-                [render_pass setCullMode: MTLCullModeNone];
+                // configure vertex buffer
+                [command_encoder setVertexBuffer: _render_verts offset: 0 atIndex: 0];
+                [command_encoder setVertexBuffer: _matrices offset: 0 atIndex: 1];
                 
-                [render_pass setVertexBuffer: _render_verts offset: 0 atIndex: 0];
-                [render_pass setVertexBuffer: _matrices offset: 0 atIndex: 1];
-                
-                [render_pass drawIndexedPrimitives: MTLPrimitiveTypeTriangle
+                // encode draw command
+                [command_encoder drawIndexedPrimitives: MTLPrimitiveTypeTriangle
                                        indexCount: 3*_num_render_triangles
                                         indexType: MTLIndexTypeUInt32
                                       indexBuffer: _render_triangles
                                 indexBufferOffset: 0];
                 
-                [render_pass endEncoding];
-                
+                // send endEncoding message to the command encoder
+                [command_encoder endEncoding];
+                                
+                // trigger display of drawable and commit the command buffer
                 [command_buffer presentDrawable: view.currentDrawable];
-                
                 [command_buffer commit];
             }
         }];
+        
 //        [_solver_mesh waitUntilCompleted];
-
 //        double const* pSoln = [_solver_mesh solutionContents];
     }
 }
