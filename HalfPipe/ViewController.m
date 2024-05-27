@@ -43,23 +43,23 @@
     [self.solutionLabel setSelectable:NO];
     [self.view addSubview:self.solutionLabel];
     
+    // elapsed time label
+    self.elapsedTimeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 40, 200, 20)];
+    [self.elapsedTimeLabel setBezeled:NO];
+    [self.elapsedTimeLabel setDrawsBackground:NO];
+    [self.elapsedTimeLabel setEditable:NO];
+    [self.elapsedTimeLabel setSelectable:NO];
+    [self.elapsedTimeLabel setStringValue:@"Runtime: 0.0 sec"];
+    [self.view addSubview:self.elapsedTimeLabel];
+    
     // frame rate label
-    self.frameRateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 40, 200, 20)];
+    self.frameRateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 20, 200, 20)];
     [self.frameRateLabel setBezeled:NO];
     [self.frameRateLabel setDrawsBackground:NO];
     [self.frameRateLabel setEditable:NO];
     [self.frameRateLabel setSelectable:NO];
     [self.frameRateLabel setStringValue:@"Frame Rate: 0 FPS"];
     [self.view addSubview:self.frameRateLabel];
-    
-    // elapsed time label
-    self.elapsedTimeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 20, 200, 20)];
-    [self.elapsedTimeLabel setBezeled:NO];
-    [self.elapsedTimeLabel setDrawsBackground:NO];
-    [self.elapsedTimeLabel setEditable:NO];
-    [self.elapsedTimeLabel setSelectable:NO];
-    [self.elapsedTimeLabel setStringValue:@"Elapsed Time: 0.0 seconds"];
-    [self.view addSubview:self.elapsedTimeLabel];
     
     // update labels in real time
     _renderer.errorLabel = self.errorLabel;

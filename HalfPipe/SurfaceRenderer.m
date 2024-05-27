@@ -63,12 +63,11 @@
     double*                     _p_elem_render_soln;
     
     // framerate and runtime
+    CFTimeInterval              lastUpdateTimestamp;
     double                      lastFrameTimestamp;
     int                         frameCount;
     double                      elapsedTime;
     double                      totalRuntime;
-    
-    bool                        flag;
 }
 
 -(nonnull instancetype) initWithMetalKitView: (MTKView* __nonnull) mtkView
@@ -77,7 +76,13 @@
     if (self == nil)
         return nil;
     
-    flag = true;
+    // flag = true;
+    // initialize frame data array
+    self.frameDataArray = [NSMutableArray array];
+    self.currentFrameIndex = 0;
+    self.isPseudoSimMode = NO;
+    lastUpdateTimestamp = 0;
+    frameCount = 0;
     
     NSUInteger const elem_order = 8;
     NSUInteger const num_elems_x = 8;
@@ -340,107 +345,143 @@
 //    unsigned int load_step_value = atomic_load_explicit(_load_step, memory_order_relaxed);
 //    NSLog(@"Current load step: %u", load_step_value);
     
+//    if (!self.isPseudoSimMode) {
+//        
+//    } else {
+//        // Update the pseudo-simulation data
+//        FrameData *currentFrameData = self.frameDataArray[self.currentFrameIndex];
+//        [self updatePseudoSimDataWithFrameData:currentFrameData];
+//        
+//        // Move to the next frame
+//        self.currentFrameIndex = (self.currentFrameIndex + 1) % self.frameDataArray.count;
+//    }
+
     // this if-block steps through simulation and goes false when simulation completes
-    if (atomic_load_explicit(_load_step, memory_order_relaxed) < _max_load_steps)
-    {
-        // update frame rate and total elapsed time
-        NSDictionary *frameRateInfo = [self measureFrameRate];
-        double fps = [frameRateInfo[@"fps"] doubleValue];
-        double runtime = [frameRateInfo[@"runtime"] doubleValue];
-        
-        // run the simulation for a single iteration
-        [_solver_mesh runIterationWithCompletionHandler:^(const void * _Nonnull ppsoln, const void * _Nonnull perr) {
-            double const* psoln = (double const*)ppsoln;
-            double err = ((double const*)perr)[0];
-            
-            // display solution and error values
-            dispatch_async(dispatch_get_main_queue(), ^{
+    if (self.isPseudoSimMode == NO) {
+        if (atomic_load_explicit(_load_step, memory_order_relaxed) < _max_load_steps)
+        {
+            // run the simulation for a single iteration
+            [_solver_mesh runIterationWithCompletionHandler:^(const void * _Nonnull ppsoln, const void * _Nonnull perr) {
+                double const* psoln = (double const*)ppsoln;
+                double err = ((double const*)perr)[0];
+                
+                // display solution and error values
                 [self displaySoln:psoln err:err];
-            });
-            
-            if (err <= .01)
-            {
-                [_solver_mesh applyPointForce: (vector_double3){0.0, 0.0, _load_increment}
-                                      element: _mid_elem
-                                     location: (vector_double3){-1.0, 1.0, 1.0}];        // change location of force
-                atomic_fetch_add_explicit(_load_step, 1, memory_order_relaxed);
-            }
-            
-            vector_float4* p_render_verts = (vector_float4*)[_render_verts contents];
-            
-            for (NSUInteger i = 0; i < _num_elems; ++i)
-            {
-                // collect displacements for this element
-                NSUInteger const* p_elem = _elements + i*_verts_per_elem;
-                for (NSUInteger j = 0; j < _verts_per_elem; ++j)
+                
+                if (err <= .01)
                 {
-                    NSUInteger global_idx = p_elem[j];
-                    _p_elem_nodal_soln[j*7 + 0] = psoln[global_idx*7 + 0];
-                    _p_elem_nodal_soln[j*7 + 1] = psoln[global_idx*7 + 1];
-                    _p_elem_nodal_soln[j*7 + 2] = psoln[global_idx*7 + 2];
-                    _p_elem_nodal_soln[j*7 + 3] = psoln[global_idx*7 + 3];
-                    _p_elem_nodal_soln[j*7 + 4] = psoln[global_idx*7 + 4];
-                    _p_elem_nodal_soln[j*7 + 5] = psoln[global_idx*7 + 5];
-                    _p_elem_nodal_soln[j*7 + 6] = psoln[global_idx*7 + 6];
+                    [_solver_mesh applyPointForce: (vector_double3){0.0, 0.0, _load_increment}
+                                          element: _mid_elem
+                                         location: (vector_double3){-1.0, 1.0, 1.0}];        // change location of force
+                    atomic_fetch_add_explicit(_load_step, 1, memory_order_relaxed);
                 }
                 
-                // interpolate to this element's rendering points
-                cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, (int)_rendering_verts_per_elem, 7, (int)_verts_per_elem, 1.0, _sf, (int)_verts_per_elem, _p_elem_nodal_soln, 7, 0.0, _p_elem_render_soln, 7);
+                vector_float4* p_render_verts = (vector_float4*)[_render_verts contents];
                 
-                vector_float4* p_rverts = p_render_verts + 2*i*_rendering_verts_per_elem;
-                vector_float4* p_orig_rverts = _orig_render_verts + 2*i*_rendering_verts_per_elem;
-                for (NSUInteger j = 0; j < _rendering_verts_per_elem; ++j)
+                for (NSUInteger i = 0; i < _num_elems; ++i)
                 {
-                    p_rverts[2*j + 0].x = p_orig_rverts[2*j + 0].x + _p_elem_render_soln[7*j + 0];
-                    p_rverts[2*j + 0].y = p_orig_rverts[2*j + 0].y + _p_elem_render_soln[7*j + 1];
-                    p_rverts[2*j + 0].z = p_orig_rverts[2*j + 0].z + _p_elem_render_soln[7*j + 2];
+                    // collect displacements for this element
+                    NSUInteger const* p_elem = _elements + i*_verts_per_elem;
+                    for (NSUInteger j = 0; j < _verts_per_elem; ++j)
+                    {
+                        NSUInteger global_idx = p_elem[j];
+                        _p_elem_nodal_soln[j*7 + 0] = psoln[global_idx*7 + 0];
+                        _p_elem_nodal_soln[j*7 + 1] = psoln[global_idx*7 + 1];
+                        _p_elem_nodal_soln[j*7 + 2] = psoln[global_idx*7 + 2];
+                        _p_elem_nodal_soln[j*7 + 3] = psoln[global_idx*7 + 3];
+                        _p_elem_nodal_soln[j*7 + 4] = psoln[global_idx*7 + 4];
+                        _p_elem_nodal_soln[j*7 + 5] = psoln[global_idx*7 + 5];
+                        _p_elem_nodal_soln[j*7 + 6] = psoln[global_idx*7 + 6];
+                    }
                     
-                    p_rverts[2*j + 1].x = p_orig_rverts[2*j + 1].x + _p_elem_render_soln[7*j + 3];
-                    p_rverts[2*j + 1].y = p_orig_rverts[2*j + 1].y + _p_elem_render_soln[7*j + 4];
-                    p_rverts[2*j + 1].z = p_orig_rverts[2*j + 1].z + _p_elem_render_soln[7*j + 5];
+                    // interpolate to this element's rendering points
+                    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, (int)_rendering_verts_per_elem, 7, (int)_verts_per_elem, 1.0, _sf, (int)_verts_per_elem, _p_elem_nodal_soln, 7, 0.0, _p_elem_render_soln, 7);
                     
-                    p_rverts[2*j + 1].xyz = simd_normalize(p_rverts[2*j + 1].xyz);
+                    vector_float4* p_rverts = p_render_verts + 2*i*_rendering_verts_per_elem;
+                    vector_float4* p_orig_rverts = _orig_render_verts + 2*i*_rendering_verts_per_elem;
+                    for (NSUInteger j = 0; j < _rendering_verts_per_elem; ++j)
+                    {
+                        p_rverts[2*j + 0].x = p_orig_rverts[2*j + 0].x + _p_elem_render_soln[7*j + 0];
+                        p_rverts[2*j + 0].y = p_orig_rverts[2*j + 0].y + _p_elem_render_soln[7*j + 1];
+                        p_rverts[2*j + 0].z = p_orig_rverts[2*j + 0].z + _p_elem_render_soln[7*j + 2];
+                        
+                        p_rverts[2*j + 1].x = p_orig_rverts[2*j + 1].x + _p_elem_render_soln[7*j + 3];
+                        p_rverts[2*j + 1].y = p_orig_rverts[2*j + 1].y + _p_elem_render_soln[7*j + 4];
+                        p_rverts[2*j + 1].z = p_orig_rverts[2*j + 1].z + _p_elem_render_soln[7*j + 5];
+                        
+                        p_rverts[2*j + 1].xyz = simd_normalize(p_rverts[2*j + 1].xyz);
+                    }
                 }
-            }
-            
-            @autoreleasepool
-            {
-                // create command buffer to store GPU commands
-                id<MTLCommandBuffer> command_buffer = [_command_queue commandBuffer];
                 
-                // create pipeline descriptor that describes how to render geometry
-                MTLRenderPassDescriptor* pass_descriptor = [view currentRenderPassDescriptor];
+                @autoreleasepool
+                {
+                    // create command buffer to store GPU commands
+                    id<MTLCommandBuffer> command_buffer = [_command_queue commandBuffer];
+                    
+                    // create pipeline descriptor that describes how to render geometry
+                    MTLRenderPassDescriptor* pass_descriptor = [view currentRenderPassDescriptor];
+                    
+                    // encode render pass into command buffer
+                    id<MTLRenderCommandEncoder> command_encoder = [command_buffer renderCommandEncoderWithDescriptor: pass_descriptor];
+                    
+                    // configure rendering pass
+                    [command_encoder setRenderPipelineState: _pipeline_state];
+                    [command_encoder setFrontFacingWinding: MTLWindingCounterClockwise];
+                    [command_encoder setCullMode: MTLCullModeNone];
+                    
+                    // configure vertex buffer
+                    [command_encoder setVertexBuffer: _render_verts offset: 0 atIndex: 0];
+                    [command_encoder setVertexBuffer: _matrices offset: 0 atIndex: 1];
+                    
+                    // encode draw command
+                    [command_encoder drawIndexedPrimitives: MTLPrimitiveTypeTriangle
+                                                indexCount: 3*_num_render_triangles
+                                                 indexType: MTLIndexTypeUInt32
+                                               indexBuffer: _render_triangles
+                                         indexBufferOffset: 0];
+                    
+                    // send endEncoding message to the command encoder
+                    [command_encoder endEncoding];
+                    
+                    // trigger display of drawable and commit the command buffer
+                    [command_buffer presentDrawable: view.currentDrawable];
+                    [command_buffer commit];
+                }
                 
-                // encode render pass into command buffer
-                id<MTLRenderCommandEncoder> command_encoder = [command_buffer renderCommandEncoderWithDescriptor: pass_descriptor];
+                // update frame rate and total elapsed time
+                NSDictionary *frameRateInfo = [self measureFrameRate];
+                double fps = [frameRateInfo[@"fps"] doubleValue];
+                double runtime = [frameRateInfo[@"runtime"] doubleValue];
                 
-                // configure rendering pass
-                [command_encoder setRenderPipelineState: _pipeline_state];
-                [command_encoder setFrontFacingWinding: MTLWindingCounterClockwise];
-                [command_encoder setCullMode: MTLCullModeNone];
+                // Get solution and error values from the solver
+                __block double solution = *psoln;
+                __block double error = err;
                 
-                // configure vertex buffer
-                [command_encoder setVertexBuffer: _render_verts offset: 0 atIndex: 0];
-                [command_encoder setVertexBuffer: _matrices offset: 0 atIndex: 1];
+                // Store frame data
+                vector_float4 *vertexData = (vector_float4 *)[_render_verts contents];
+                matrix_float4x4 *matrixData = (matrix_float4x4 *)[_matrices contents];
+                uint32_t *indexData = (uint32_t *)[_render_triangles contents];
                 
-                // encode draw command
-                [command_encoder drawIndexedPrimitives: MTLPrimitiveTypeTriangle
-                                            indexCount: 3*_num_render_triangles
-                                             indexType: MTLIndexTypeUInt32
-                                           indexBuffer: _render_triangles
-                                     indexBufferOffset: 0];
+                NSUInteger _num_matrices = 2;
+                FrameData *frameData = [[FrameData alloc] initWithVertexCount:_num_vertices
+                                                                  matrixCount:_num_matrices
+                                                                   indexCount:_num_render_triangles * 3
+                                                                          fps:fps
+                                                                      runtime:runtime
+                                                                     solution:solution
+                                                                        error:error];
+                [frameData copyVertexData:vertexData];
+                [frameData copyMatrixData:matrixData];
+                [frameData copyIndexData:indexData];
                 
-                // send endEncoding message to the command encoder
-                [command_encoder endEncoding];
-                
-                // trigger display of drawable and commit the command buffer
-                [command_buffer presentDrawable: view.currentDrawable];
-                [command_buffer commit];
-            }
-            
-            flag = false;
-        }];
-    } // else { // reset simulation }
+                [self.frameDataArray addObject:frameData];
+            }];
+        } else { // simulation has completed
+            self.isPseudoSimMode = YES;
+        }
+    } else { // enter pseudo-simulation mode
+        
+    }
 }
 
 
@@ -473,7 +514,9 @@
     if (elapsedTime >= 1.0) {
         fps = frameCount / elapsedTime;
         if (self.frameRateLabel != nil) {
-            self.frameRateLabel.stringValue = [NSString stringWithFormat:@"Frame Rate: %.2f FPS", fps];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.frameRateLabel.stringValue = [NSString stringWithFormat:@"Frame Rate: %.2f FPS", fps];
+            });
         }
         frameCount = 0;
         elapsedTime = 0;
@@ -481,7 +524,9 @@
     
     // calculate total elapsed time
     if (self.elapsedTimeLabel != nil) {
-        self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Elapsed Time: %.2f seconds", totalRuntime];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Runtime: %.2f sec", totalRuntime];
+        });
     }
     
     return @{@"fps": @(fps), @"runtime": @(totalRuntime)};
@@ -495,8 +540,10 @@
  * @param err error value
  */
 - (void)displaySoln: (double const*) psoln err: (double) err {
-    self.errorLabel.stringValue = [NSString stringWithFormat:@"Error: %.4f", err];
-    self.solutionLabel.stringValue = [NSString stringWithFormat:@"Solution: %.4f", *psoln];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.errorLabel.stringValue = [NSString stringWithFormat:@"Error: %.4f", err];
+        self.solutionLabel.stringValue = [NSString stringWithFormat:@"Solution: %.4f", *psoln];
+    });
 }
 
 @end    // SurfaceRenderer

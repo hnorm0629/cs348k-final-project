@@ -12,7 +12,11 @@
 
 - (instancetype)initWithVertexCount:(NSUInteger)vertexCount
                         matrixCount:(NSUInteger)matrixCount
-                         indexCount:(NSUInteger)indexCount {
+                         indexCount:(NSUInteger)indexCount
+                                fps:(double)fps
+                            runtime:(double)runtime
+                           solution:(double)solution
+                              error:(double)error {
     self = [super init];
     if (self) {
         _vertexCount = vertexCount;
@@ -23,6 +27,11 @@
         
         _indexCount = indexCount;
         _indices = (uint32_t *)malloc(sizeof(uint32_t) * indexCount);
+        
+        _fps = fps;
+        _runtime = runtime;
+        _solution = solution;
+        _error = error;
     }
     return self;
 }
@@ -31,6 +40,8 @@
     free(_vertices);
     free(_matrices);
     free(_indices);
+    
+    [super dealloc];
 }
 
 - (void)copyVertexData:(vector_float4 *)vertexData {
