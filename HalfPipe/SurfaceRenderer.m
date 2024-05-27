@@ -67,6 +67,8 @@
     int                         frameCount;
     double                      elapsedTime;
     double                      totalRuntime;
+    
+    bool                        flag;
 }
 
 -(nonnull instancetype) initWithMetalKitView: (MTKView* __nonnull) mtkView
@@ -74,6 +76,8 @@
     self = [super init];
     if (self == nil)
         return nil;
+    
+    flag = true;
     
     NSUInteger const elem_order = 8;
     NSUInteger const num_elems_x = 8;
@@ -333,11 +337,16 @@
 
 -(void)drawInMTKView: (nonnull MTKView*) view
 {
+//    unsigned int load_step_value = atomic_load_explicit(_load_step, memory_order_relaxed);
+//    NSLog(@"Current load step: %u", load_step_value);
+    
     // this if-block steps through simulation and goes false when simulation completes
     if (atomic_load_explicit(_load_step, memory_order_relaxed) < _max_load_steps)
     {
         // update frame rate and total elapsed time
-        [self measureFrameRate];
+        NSDictionary *frameRateInfo = [self measureFrameRate];
+        double fps = [frameRateInfo[@"fps"] doubleValue];
+        double runtime = [frameRateInfo[@"runtime"] doubleValue];
         
         // run the simulation for a single iteration
         [_solver_mesh runIterationWithCompletionHandler:^(const void * _Nonnull ppsoln, const void * _Nonnull perr) {
@@ -428,9 +437,12 @@
                 [command_buffer presentDrawable: view.currentDrawable];
                 [command_buffer commit];
             }
+            
+            flag = false;
         }];
     } // else { // reset simulation }
 }
+
 
 -(void)mtkView: (nonnull MTKView*) view drawableSizeWillChange: (CGSize) size
 {
@@ -438,15 +450,16 @@
     _viewport_size.y = size.height;
 }
 
+
 /**
  * Measure and display frame rate of simulation.
  */
-- (void)measureFrameRate {
+- (NSDictionary *)measureFrameRate {
     // get current time
     CFTimeInterval currentTimestamp = CACurrentMediaTime();
     if (lastFrameTimestamp == 0) {
         lastFrameTimestamp = currentTimestamp;
-        return;
+        return @{@"fps": @0.0, @"runtime": @0.0};
     }
     
     // increment frame and elapsed time
@@ -456,8 +469,9 @@
     lastFrameTimestamp = currentTimestamp;
     
     // calculate frame rate
+    double fps = 0.0;
     if (elapsedTime >= 1.0) {
-        double fps = frameCount / elapsedTime;
+        fps = frameCount / elapsedTime;
         if (self.frameRateLabel != nil) {
             self.frameRateLabel.stringValue = [NSString stringWithFormat:@"Frame Rate: %.2f FPS", fps];
         }
@@ -469,6 +483,8 @@
     if (self.elapsedTimeLabel != nil) {
         self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Elapsed Time: %.2f seconds", totalRuntime];
     }
+    
+    return @{@"fps": @(fps), @"runtime": @(totalRuntime)};
 }
 
 

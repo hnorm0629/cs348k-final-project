@@ -488,6 +488,7 @@
 		9448B72227B09B0900A690D3 /* K75_12.m in Sources */ = {isa = PBXBuildFile; fileRef = 9448B55427B09B0900A690D3 /* K75_12.m */; };
 		9448B72327B09B0900A690D3 /* K21_23.m in Sources */ = {isa = PBXBuildFile; fileRef = 9448B55527B09B0900A690D3 /* K21_23.m */; };
 		94598E7B27B1E823008592D7 /* TriangulateElement.m in Sources */ = {isa = PBXBuildFile; fileRef = 94598E7A27B1E823008592D7 /* TriangulateElement.m */; };
+		9E1F603B2C05269800A8092E /* FrameData.m in Sources */ = {isa = PBXBuildFile; fileRef = 9E1F603A2C05269800A8092E /* FrameData.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -998,6 +999,8 @@
 		944F47DC27B5B419005B0650 /* AdaptableFiniteElementKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AdaptableFiniteElementKit.framework; path = ../Releases/AdaptableFiniteElementKit.dst/Library/Frameworks/AdaptableFiniteElementKit.framework; sourceTree = "<group>"; };
 		94598E7927B1E77E008592D7 /* TriangulateElement.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TriangulateElement.h; sourceTree = "<group>"; };
 		94598E7A27B1E823008592D7 /* TriangulateElement.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TriangulateElement.m; sourceTree = "<group>"; };
+		9E1F603A2C05269800A8092E /* FrameData.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FrameData.m; sourceTree = "<group>"; };
+		9E1F603C2C0526A900A8092E /* FrameData.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FrameData.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1053,6 +1056,8 @@
 				9445B4B727AF784A00463E5E /* Main.storyboard */,
 				9445B4BA27AF784A00463E5E /* main.m */,
 				9445B4BC27AF784A00463E5E /* HalfPipe.entitlements */,
+				9E1F603A2C05269800A8092E /* FrameData.m */,
+				9E1F603C2C0526A900A8092E /* FrameData.h */,
 			);
 			path = HalfPipe;
 			sourceTree = "<group>";
@@ -1627,6 +1632,7 @@
 				9448B6B527B09B0900A690D3 /* K75_13.m in Sources */,
 				9448B71C27B09B0900A690D3 /* K61_23.m in Sources */,
 				9448B5C427B09B0900A690D3 /* K65_33.m in Sources */,
+				9E1F603B2C05269800A8092E /* FrameData.m in Sources */,
 				9448B6A627B09B0900A690D3 /* K41_12.m in Sources */,
 				9448B6C827B09B0900A690D3 /* K34_12.m in Sources */,
 				9448B56B27B09B0900A690D3 /* K37_21.m in Sources */,
