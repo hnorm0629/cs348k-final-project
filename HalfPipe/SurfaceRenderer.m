@@ -61,6 +61,14 @@
     double*                     _p_reordered_soln;
     double*                     _p_elem_nodal_soln;
     double*                     _p_elem_render_soln;
+    
+    // framerate
+    double lastFrameTimestamp;
+    int frameCount;
+    double elapsedTime;
+    
+    // elapsed time
+    double totalRuntime;
 }
   
 -(nonnull instancetype) initWithMetalKitView: (MTKView* __nonnull) mtkView
@@ -327,6 +335,8 @@
 
 -(void)drawInMTKView: (nonnull MTKView*) view
 {
+    [self measureFrameRate];
+    
     // Run the simulation for a single iteration.
     if (atomic_load_explicit(_load_step, memory_order_relaxed) < _max_load_steps)
     {
@@ -429,6 +439,39 @@
 {
     _viewport_size.x = size.width;
     _viewport_size.y = size.height;
+}
+
+/**
+ * Measure and display frame rate of simulation.
+ */
+- (void)measureFrameRate {
+    // get current time
+    CFTimeInterval currentTimestamp = CACurrentMediaTime();
+    if (lastFrameTimestamp == 0) {
+        lastFrameTimestamp = currentTimestamp;
+        return;
+    }
+
+    // increment frame and elapsed time
+    frameCount++;
+    elapsedTime += currentTimestamp - lastFrameTimestamp;
+    totalRuntime += currentTimestamp - lastFrameTimestamp;
+    lastFrameTimestamp = currentTimestamp;
+
+    // calculate frame rate
+    if (elapsedTime >= 1.0) {
+        double fps = frameCount / elapsedTime;
+        if (self.frameRateLabel != nil) {
+            self.frameRateLabel.stringValue = [NSString stringWithFormat:@"Frame Rate: %.2f FPS", fps];
+        }
+        frameCount = 0;
+        elapsedTime = 0;
+    }
+    
+    // calculate total elapsed time
+    if (self.elapsedTimeLabel != nil) {
+        self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Elapsed Time: %.2f seconds", totalRuntime];
+    }
 }
 
 @end    // SurfaceRenderer
