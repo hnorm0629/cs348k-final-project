@@ -10,6 +10,8 @@
 
 @interface SurfaceRenderer: NSObject<MTKViewDelegate>
 
+@property (nonatomic, strong) NSTextField * _Nonnull errorLabel;
+@property (nonatomic, strong) NSTextField * _Nonnull solutionLabel;
 @property (nonatomic, strong) NSTextField * _Nonnull frameRateLabel;
 @property (nonatomic, strong) NSTextField * _Nonnull elapsedTimeLabel;
 

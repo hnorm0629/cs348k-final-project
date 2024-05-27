@@ -62,15 +62,13 @@
     double*                     _p_elem_nodal_soln;
     double*                     _p_elem_render_soln;
     
-    // framerate
-    double lastFrameTimestamp;
-    int frameCount;
-    double elapsedTime;
-    
-    // elapsed time
-    double totalRuntime;
+    // framerate and runtime
+    double                      lastFrameTimestamp;
+    int                         frameCount;
+    double                      elapsedTime;
+    double                      totalRuntime;
 }
-  
+
 -(nonnull instancetype) initWithMetalKitView: (MTKView* __nonnull) mtkView
 {
     self = [super init];
@@ -115,7 +113,7 @@
     {
         NSError* error = nil;
         _pipeline_state = [_device newRenderPipelineStateWithDescriptor: pipeline_desc
-                                                                 error: &error];
+                                                                  error: &error];
     }
     
     [pipeline_desc release];
@@ -148,7 +146,7 @@
     matrix_float4x4 mvp_matrix = matrix_multiply(projection_matrix, mv_matrix);
     
     _matrices = [_device newBufferWithLength: 2*sizeof(matrix_float4x4)
-                                    options: MTLResourceStorageModeShared];
+                                     options: MTLResourceStorageModeShared];
     
     matrix_float4x4* p_matrices = (matrix_float4x4*)[_matrices contents];
     p_matrices[0] = mvp_matrix;
@@ -160,13 +158,13 @@
     Model*   shell_model = [[Model alloc] initWithMaterialParameters: material];
     
     _solver_mesh = [[AFEKMesh alloc] initWithElements: _elements
-                                      elementStride: _verts_per_elem
-                                        elementType: q81_element
-                                        coordinates: positions
-                                            normals: normals
-                                   numberOfElements: _num_elems
-                                   numberOfVertices: _num_vertices
-                                              model: shell_model
+                                        elementStride: _verts_per_elem
+                                          elementType: q81_element
+                                          coordinates: positions
+                                              normals: normals
+                                     numberOfElements: _num_elems
+                                     numberOfVertices: _num_vertices
+                                                model: shell_model
                                              dataType: AFEKDataTypeFloat64];
     
     // Apply boundary conditions.
@@ -198,11 +196,11 @@
     double* ldsf0 = (double*)malloc(_rendering_verts_per_elem * _verts_per_elem * sizeof(double));
     double* ldsf1 = (double*)malloc(_rendering_verts_per_elem * _verts_per_elem * sizeof(double));
     [q81_element generateShapeValuesAtPoints: elem_triangle_verts
-                             numberOfPoints: _rendering_verts_per_elem
-                               shapeResults: _sf
-                     localDiffShape1Results: ldsf0
-                     localDiffShape2Results: ldsf1
-                             shapeRowStride: _verts_per_elem];
+                              numberOfPoints: _rendering_verts_per_elem
+                                shapeResults: _sf
+                      localDiffShape1Results: ldsf0
+                      localDiffShape2Results: ldsf1
+                              shapeRowStride: _verts_per_elem];
     
     double* temp = (double*)malloc(_verts_per_elem * 3 * sizeof(double));
     double* temp2 = (double*)malloc(_rendering_verts_per_elem * 3 * sizeof(double));
@@ -292,8 +290,8 @@
     // Apply a force.
     _mid_elem = ((num_elems_y >> 1) - 1) * num_elems_x;
     [_solver_mesh applyPointForce: (vector_double3){0.0, 0.0, _load_increment}
-                         element: _mid_elem
-                        location: (vector_double3){-1.0, 1.0, 1.0}];
+                          element: _mid_elem
+                         location: (vector_double3){-1.0, 1.0, 1.0}];
     
     _load_step = (atomic_uint*)malloc(sizeof(atomic_uint));
     atomic_store_explicit(_load_step, 1, memory_order_relaxed);
@@ -335,33 +333,35 @@
 
 -(void)drawInMTKView: (nonnull MTKView*) view
 {
-    [self measureFrameRate];
-    
-    // Run the simulation for a single iteration.
+    // this if-block steps through simulation and goes false when simulation completes
     if (atomic_load_explicit(_load_step, memory_order_relaxed) < _max_load_steps)
     {
+        // update frame rate and total elapsed time
+        [self measureFrameRate];
+        
+        // run the simulation for a single iteration
         [_solver_mesh runIterationWithCompletionHandler:^(const void * _Nonnull ppsoln, const void * _Nonnull perr) {
             double const* psoln = (double const*)ppsoln;
             double err = ((double const*)perr)[0];
+            
+            // display solution and error values
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self displaySoln:psoln err:err];
+            });
+            
             if (err <= .01)
             {
                 [_solver_mesh applyPointForce: (vector_double3){0.0, 0.0, _load_increment}
-                                     element: _mid_elem
-                                    location: (vector_double3){-1.0, 1.0, 1.0}];
+                                      element: _mid_elem
+                                     location: (vector_double3){-1.0, 1.0, 1.0}];        // change location of force
                 atomic_fetch_add_explicit(_load_step, 1, memory_order_relaxed);
             }
-            
-//            [_solver_mesh permuteArray: psoln
-//                              AStride: 7
-//                               result: _p_reordered_soln
-//                              BStride: 7
-//                              columns: 7];
             
             vector_float4* p_render_verts = (vector_float4*)[_render_verts contents];
             
             for (NSUInteger i = 0; i < _num_elems; ++i)
             {
-                // Collect displacements for this element.
+                // collect displacements for this element
                 NSUInteger const* p_elem = _elements + i*_verts_per_elem;
                 for (NSUInteger j = 0; j < _verts_per_elem; ++j)
                 {
@@ -375,7 +375,7 @@
                     _p_elem_nodal_soln[j*7 + 6] = psoln[global_idx*7 + 6];
                 }
                 
-                // Interpolate to this element's rendering points.
+                // interpolate to this element's rendering points
                 cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, (int)_rendering_verts_per_elem, 7, (int)_verts_per_elem, 1.0, _sf, (int)_verts_per_elem, _p_elem_nodal_soln, 7, 0.0, _p_elem_render_soln, 7);
                 
                 vector_float4* p_rverts = p_render_verts + 2*i*_rendering_verts_per_elem;
@@ -389,7 +389,7 @@
                     p_rverts[2*j + 1].x = p_orig_rverts[2*j + 1].x + _p_elem_render_soln[7*j + 3];
                     p_rverts[2*j + 1].y = p_orig_rverts[2*j + 1].y + _p_elem_render_soln[7*j + 4];
                     p_rverts[2*j + 1].z = p_orig_rverts[2*j + 1].z + _p_elem_render_soln[7*j + 5];
-
+                    
                     p_rverts[2*j + 1].xyz = simd_normalize(p_rverts[2*j + 1].xyz);
                 }
             }
@@ -416,23 +416,20 @@
                 
                 // encode draw command
                 [command_encoder drawIndexedPrimitives: MTLPrimitiveTypeTriangle
-                                       indexCount: 3*_num_render_triangles
-                                        indexType: MTLIndexTypeUInt32
-                                      indexBuffer: _render_triangles
-                                indexBufferOffset: 0];
+                                            indexCount: 3*_num_render_triangles
+                                             indexType: MTLIndexTypeUInt32
+                                           indexBuffer: _render_triangles
+                                     indexBufferOffset: 0];
                 
                 // send endEncoding message to the command encoder
                 [command_encoder endEncoding];
-                                
+                
                 // trigger display of drawable and commit the command buffer
                 [command_buffer presentDrawable: view.currentDrawable];
                 [command_buffer commit];
             }
         }];
-        
-//        [_solver_mesh waitUntilCompleted];
-//        double const* pSoln = [_solver_mesh solutionContents];
-    }
+    } // else { // reset simulation }
 }
 
 -(void)mtkView: (nonnull MTKView*) view drawableSizeWillChange: (CGSize) size
@@ -451,13 +448,13 @@
         lastFrameTimestamp = currentTimestamp;
         return;
     }
-
+    
     // increment frame and elapsed time
     frameCount++;
     elapsedTime += currentTimestamp - lastFrameTimestamp;
     totalRuntime += currentTimestamp - lastFrameTimestamp;
     lastFrameTimestamp = currentTimestamp;
-
+    
     // calculate frame rate
     if (elapsedTime >= 1.0) {
         double fps = frameCount / elapsedTime;
@@ -472,6 +469,18 @@
     if (self.elapsedTimeLabel != nil) {
         self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Elapsed Time: %.2f seconds", totalRuntime];
     }
+}
+
+
+/**
+ * Display current frame's solution and error values to 6 sig figs.
+ *
+ * @param psoln solution value
+ * @param err error value
+ */
+- (void)displaySoln: (double const*) psoln err: (double) err {
+    self.errorLabel.stringValue = [NSString stringWithFormat:@"Error: %.4f", err];
+    self.solutionLabel.stringValue = [NSString stringWithFormat:@"Solution: %.4f", *psoln];
 }
 
 @end    // SurfaceRenderer
