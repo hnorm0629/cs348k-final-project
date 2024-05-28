@@ -81,6 +81,7 @@
     self.frameDataArray = [NSMutableArray array];
     self.currentFrameIndex = 0;
     self.isPseudoSimMode = NO;
+    self.frameIndex = 0;
     lastUpdateTimestamp = 0;
     frameCount = 0;
     
@@ -345,17 +346,6 @@
 //    unsigned int load_step_value = atomic_load_explicit(_load_step, memory_order_relaxed);
 //    NSLog(@"Current load step: %u", load_step_value);
     
-//    if (!self.isPseudoSimMode) {
-//        
-//    } else {
-//        // Update the pseudo-simulation data
-//        FrameData *currentFrameData = self.frameDataArray[self.currentFrameIndex];
-//        [self updatePseudoSimDataWithFrameData:currentFrameData];
-//        
-//        // Move to the next frame
-//        self.currentFrameIndex = (self.currentFrameIndex + 1) % self.frameDataArray.count;
-//    }
-
     // this if-block steps through simulation and goes false when simulation completes
     if (self.isPseudoSimMode == NO) {
         if (atomic_load_explicit(_load_step, memory_order_relaxed) < _max_load_steps)
@@ -413,41 +403,6 @@
                     }
                 }
                 
-                @autoreleasepool
-                {
-                    // create command buffer to store GPU commands
-                    id<MTLCommandBuffer> command_buffer = [_command_queue commandBuffer];
-                    
-                    // create pipeline descriptor that describes how to render geometry
-                    MTLRenderPassDescriptor* pass_descriptor = [view currentRenderPassDescriptor];
-                    
-                    // encode render pass into command buffer
-                    id<MTLRenderCommandEncoder> command_encoder = [command_buffer renderCommandEncoderWithDescriptor: pass_descriptor];
-                    
-                    // configure rendering pass
-                    [command_encoder setRenderPipelineState: _pipeline_state];
-                    [command_encoder setFrontFacingWinding: MTLWindingCounterClockwise];
-                    [command_encoder setCullMode: MTLCullModeNone];
-                    
-                    // configure vertex buffer
-                    [command_encoder setVertexBuffer: _render_verts offset: 0 atIndex: 0];
-                    [command_encoder setVertexBuffer: _matrices offset: 0 atIndex: 1];
-                    
-                    // encode draw command
-                    [command_encoder drawIndexedPrimitives: MTLPrimitiveTypeTriangle
-                                                indexCount: 3*_num_render_triangles
-                                                 indexType: MTLIndexTypeUInt32
-                                               indexBuffer: _render_triangles
-                                         indexBufferOffset: 0];
-                    
-                    // send endEncoding message to the command encoder
-                    [command_encoder endEncoding];
-                    
-                    // trigger display of drawable and commit the command buffer
-                    [command_buffer presentDrawable: view.currentDrawable];
-                    [command_buffer commit];
-                }
-                
                 // update frame rate and total elapsed time
                 NSDictionary *frameRateInfo = [self measureFrameRate];
                 double fps = [frameRateInfo[@"fps"] doubleValue];
@@ -478,9 +433,45 @@
             }];
         } else { // simulation has completed
             self.isPseudoSimMode = YES;
+            [self simulationDidComplete];
         }
     } else { // enter pseudo-simulation mode
+        (void)[self measureFrameRate];
+    }
+    
+    @autoreleasepool
+    {
+        // create command buffer to store GPU commands
+        id<MTLCommandBuffer> command_buffer = [_command_queue commandBuffer];
         
+        // create pipeline descriptor that describes how to render geometry
+        MTLRenderPassDescriptor* pass_descriptor = [view currentRenderPassDescriptor];
+        
+        // encode render pass into command buffer
+        id<MTLRenderCommandEncoder> command_encoder = [command_buffer renderCommandEncoderWithDescriptor: pass_descriptor];
+        
+        // configure rendering pass
+        [command_encoder setRenderPipelineState: _pipeline_state];
+        [command_encoder setFrontFacingWinding: MTLWindingCounterClockwise];
+        [command_encoder setCullMode: MTLCullModeNone];
+        
+        // configure vertex buffer
+        [command_encoder setVertexBuffer: _render_verts offset: 0 atIndex: 0];
+        [command_encoder setVertexBuffer: _matrices offset: 0 atIndex: 1];
+        
+        // encode draw command
+        [command_encoder drawIndexedPrimitives: MTLPrimitiveTypeTriangle
+                                    indexCount: 3*_num_render_triangles
+                                     indexType: MTLIndexTypeUInt32
+                                   indexBuffer: _render_triangles
+                             indexBufferOffset: 0];
+        
+        // send endEncoding message to the command encoder
+        [command_encoder endEncoding];
+        
+        // trigger display of drawable and commit the command buffer
+        [command_buffer presentDrawable: view.currentDrawable];
+        [command_buffer commit];
     }
 }
 
@@ -490,7 +481,6 @@
     _viewport_size.x = size.width;
     _viewport_size.y = size.height;
 }
-
 
 /**
  * Measure and display frame rate of simulation.
@@ -523,7 +513,7 @@
     }
     
     // calculate total elapsed time
-    if (self.elapsedTimeLabel != nil) {
+    if (!self.isPseudoSimMode && self.elapsedTimeLabel != nil) {
         dispatch_async(dispatch_get_main_queue(), ^{
             self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Runtime: %.2f sec", totalRuntime];
         });
@@ -544,6 +534,37 @@
         self.errorLabel.stringValue = [NSString stringWithFormat:@"Error: %.4f", err];
         self.solutionLabel.stringValue = [NSString stringWithFormat:@"Solution: %.4f", *psoln];
     });
+}
+
+- (void)simulationDidComplete {
+    NSLog(@"SIMULATION COMPLETE");
+    
+    // update the slider
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.viewController.frameSlider.maxValue = self.frameDataArray.count - 1;
+        self.viewController.frameSlider.enabled = YES;
+    });
+}
+
+- (void)updateFrameData {
+    FrameData *frameData = self.frameDataArray[self.frameIndex];
+    
+    // Update the buffer contents with the frame data
+    memcpy([_render_verts contents], frameData.vertices, sizeof(vector_float4) * frameData.vertexCount);
+    memcpy([_matrices contents], frameData.matrices, sizeof(matrix_float4x4) * frameData.matrixCount);
+    memcpy([_render_triangles contents], frameData.indices, sizeof(uint32_t) * frameData.indexCount);
+    
+    // Update the labels
+    self.errorLabel.stringValue = [NSString stringWithFormat:@"Error: %.2f", frameData.error];
+    self.solutionLabel.stringValue = [NSString stringWithFormat:@"Solution: %.2f", frameData.solution];
+    self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Runtime: %.2f sec", frameData.runtime];
+}
+
+- (void)setFrameIndex:(NSUInteger)frameIndex {
+    if (frameIndex < self.frameDataArray.count) {
+        _frameIndex = frameIndex;
+        [self updateFrameData];
+    }
 }
 
 @end    // SurfaceRenderer

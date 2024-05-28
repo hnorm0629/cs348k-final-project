@@ -27,8 +27,10 @@
     [_renderer mtkView: _view drawableSizeWillChange: _view.drawableSize];
     _view.delegate = _renderer;
     
+    _renderer.viewController = self;
+    
     // error label
-    self.errorLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 80, 200, 20)];
+    self.errorLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 100, 200, 20)];
     [self.errorLabel setBezeled:NO];
     [self.errorLabel setDrawsBackground:NO];
     [self.errorLabel setEditable:NO];
@@ -36,7 +38,7 @@
     [self.view addSubview:self.errorLabel];
     
     // solution label
-    self.solutionLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 60, 200, 20)];
+    self.solutionLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 80, 200, 20)];
     [self.solutionLabel setBezeled:NO];
     [self.solutionLabel setDrawsBackground:NO];
     [self.solutionLabel setEditable:NO];
@@ -44,7 +46,7 @@
     [self.view addSubview:self.solutionLabel];
     
     // elapsed time label
-    self.elapsedTimeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 40, 200, 20)];
+    self.elapsedTimeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 60, 200, 20)];
     [self.elapsedTimeLabel setBezeled:NO];
     [self.elapsedTimeLabel setDrawsBackground:NO];
     [self.elapsedTimeLabel setEditable:NO];
@@ -53,7 +55,7 @@
     [self.view addSubview:self.elapsedTimeLabel];
     
     // frame rate label
-    self.frameRateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 20, 200, 20)];
+    self.frameRateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 40, 200, 20)];
     [self.frameRateLabel setBezeled:NO];
     [self.frameRateLabel setDrawsBackground:NO];
     [self.frameRateLabel setEditable:NO];
@@ -66,13 +68,26 @@
     _renderer.solutionLabel = self.solutionLabel;
     _renderer.frameRateLabel = self.frameRateLabel;
     _renderer.elapsedTimeLabel = self.elapsedTimeLabel;
+    
+    // frame slider
+    self.frameSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(20, 20, self.view.bounds.size.width - 20, 20)];
+        self.frameSlider.minValue = 0;
+        self.frameSlider.maxValue = 0;
+        self.frameSlider.target = self;
+        self.frameSlider.action = @selector(sliderValueChanged:);
+        self.frameSlider.enabled = NO;
+        [self.view addSubview:self.frameSlider];
 }
 
 
 - (void)setRepresentedObject:(id)representedObject {
     [super setRepresentedObject:representedObject];
+    // update the view, if already loaded
+}
 
-    // Update the view, if already loaded.
+- (void)sliderValueChanged:(NSSlider *)sender {
+    NSUInteger frameIndex = (NSUInteger)sender.integerValue;
+    _renderer.frameIndex = frameIndex;
 }
 
 
