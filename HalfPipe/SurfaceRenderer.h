@@ -21,11 +21,9 @@
 
 @property (nonatomic, strong) NSMutableArray<FrameData *> * _Nullable frameDataArray;
 @property (nonatomic) NSUInteger frameIndex;
-@property (nonatomic) NSUInteger currentFrameIndex;
 @property (nonatomic) BOOL isPseudoSimMode;
 
 - (nonnull instancetype) initWithMetalKitView: (MTKView* __nonnull) mtkView;
-- (void) displayFrameAtIndex: (NSUInteger) index;
 
 @end    // SurfaceRenderer
 

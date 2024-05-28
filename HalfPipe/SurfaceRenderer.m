@@ -79,7 +79,6 @@
     // flag = true;
     // initialize frame data array
     self.frameDataArray = [NSMutableArray array];
-    self.currentFrameIndex = 0;
     self.isPseudoSimMode = NO;
     self.frameIndex = 0;
     lastUpdateTimestamp = 0;
