@@ -297,6 +297,8 @@
     [q81_element release];
     [shell_model release];
     
+    NSLog(@"Beginning simulation...");
+    
     // Apply a force.
     _mid_elem = ((num_elems_y >> 1) - 1) * num_elems_x;
     [_solver_mesh applyPointForce: (vector_double3){0.0, 0.0, _load_increment}
@@ -343,9 +345,6 @@
 
 -(void)drawInMTKView: (nonnull MTKView*) view
 {
-//    unsigned int load_step_value = atomic_load_explicit(_load_step, memory_order_relaxed);
-//    NSLog(@"Current load step: %u", load_step_value);
-    
     // this if-block steps through simulation and goes false when simulation completes
     if (self.isPseudoSimMode == NO) {
         if (atomic_load_explicit(_load_step, memory_order_relaxed) < _max_load_steps)
@@ -412,15 +411,23 @@
                 __block double solution = *psoln;
                 __block double error = err;
                 
-                // Store frame data
+                // get vertex, matrix, index data
                 vector_float4 *vertexData = (vector_float4 *)[_render_verts contents];
                 matrix_float4x4 *matrixData = (matrix_float4x4 *)[_matrices contents];
                 uint32_t *indexData = (uint32_t *)[_render_triangles contents];
                 
-                NSUInteger _num_matrices = 2;
-                FrameData *frameData = [[FrameData alloc] initWithVertexCount:_num_vertices
-                                                                  matrixCount:_num_matrices
-                                                                   indexCount:_num_render_triangles * 3
+                // get total number of triangles
+                NSUInteger rendering_triangles_per_side = 8;
+                NSUInteger total_sqrs = rendering_triangles_per_side * rendering_triangles_per_side;
+                NSUInteger total_tris = total_sqrs * 2;
+                
+                // store frame data
+                NSUInteger numVertices = 2 * _num_elems * _rendering_verts_per_elem;
+                NSUInteger numMatrices = 2;
+                NSUInteger numIndexes = 3 * _num_elems * total_tris;
+                FrameData *frameData = [[FrameData alloc] initWithVertexCount:numVertices
+                                                                  matrixCount:numMatrices
+                                                                   indexCount:numIndexes
                                                                           fps:fps
                                                                       runtime:runtime
                                                                      solution:solution
@@ -537,11 +544,12 @@
 }
 
 - (void)simulationDidComplete {
-    NSLog(@"SIMULATION COMPLETE");
+    NSLog(@"Simulation complete!");
     
     // update the slider
     dispatch_async(dispatch_get_main_queue(), ^{
         self.viewController.frameSlider.maxValue = self.frameDataArray.count - 1;
+        self.viewController.frameSlider.doubleValue = self.frameDataArray.count - 1;
         self.viewController.frameSlider.enabled = YES;
     });
 }
@@ -555,8 +563,8 @@
     memcpy([_render_triangles contents], frameData.indices, sizeof(uint32_t) * frameData.indexCount);
     
     // Update the labels
-    self.errorLabel.stringValue = [NSString stringWithFormat:@"Error: %.2f", frameData.error];
-    self.solutionLabel.stringValue = [NSString stringWithFormat:@"Solution: %.2f", frameData.solution];
+    self.errorLabel.stringValue = [NSString stringWithFormat:@"Error: %.4f", frameData.error];
+    self.solutionLabel.stringValue = [NSString stringWithFormat:@"Solution: %.4f", frameData.solution];
     self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Runtime: %.2f sec", frameData.runtime];
 }
 
