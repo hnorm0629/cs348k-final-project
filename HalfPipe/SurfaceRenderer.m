@@ -35,7 +35,11 @@
     NSUInteger                  _num_vertices;
     NSUInteger                  _verts_per_elem;
     
-    
+    double                      _offset;
+    matrix_float4x4             _model_matrix;
+    matrix_float4x4             _view_matrix;
+    matrix_float4x4             _projection_matrix;
+    matrix_float4x4             _mv_matrix;
     id<MTLBuffer>               _matrices;
     
     AFEKMesh*                    _solver_mesh;
@@ -76,13 +80,16 @@
     if (self == nil)
         return nil;
     
-    // flag = true;
     // initialize frame data array
     self.frameDataArray = [NSMutableArray array];
     self.isPseudoSimMode = NO;
     self.frameIndex = 0;
     lastUpdateTimestamp = 0;
     frameCount = 0;
+    
+    // initialize camera parameters
+    self.cameraRotation = (vector_float3){0.0, 0.0, 0.0};
+    self.cameraZoom = 1.0;
     
     NSUInteger const elem_order = 8;
     NSUInteger const num_elems_x = 8;
@@ -145,21 +152,23 @@
     NSUInteger* bc_verts = (NSUInteger*)malloc(num_bcs * sizeof(NSUInteger));
     generateGeometry(elem_order, length, radius, num_elems_x, num_elems_y, _elements, positions, normals, bc_verts);
     
+    // Initailize the transformation matrices.
+    _offset = 15.0;
     matrix_float4x4 rotate_x = matrix_float4x4_rotation((vector_float3){1.0, 0.0, 0.0}, 40.0*M_PI/180.0);
     matrix_float4x4 rotate_y = matrix_float4x4_rotation((vector_float3){0.0, 1.0, 0.0}, -M_PI/8.0);
-    matrix_float4x4 model_matrix = matrix_multiply(rotate_y, rotate_x);
-    matrix_float4x4 view_matrix = matrix_float4x4_translation((vector_float3){0, 0, -15});
-    matrix_float4x4 projection_matrix = matrix_float4x4_perspective(1.0f, (2.0f * M_PI) / 5.0f, 1.0f, 100.0f);
+    _model_matrix = matrix_multiply(rotate_y, rotate_x);
+    _view_matrix = matrix_float4x4_translation((vector_float3){0.0, 0.0, -_offset});
+    _projection_matrix = matrix_float4x4_perspective(1.0f, (2.0f * M_PI) / 5.0f, 1.0f, 100.0f);
     
-    matrix_float4x4 mv_matrix = matrix_multiply(view_matrix, model_matrix);
-    matrix_float4x4 mvp_matrix = matrix_multiply(projection_matrix, mv_matrix);
+    _mv_matrix = matrix_multiply(_view_matrix, _model_matrix);
+    matrix_float4x4 mvp_matrix = matrix_multiply(_projection_matrix, _mv_matrix);
     
     _matrices = [_device newBufferWithLength: 2*sizeof(matrix_float4x4)
                                      options: MTLResourceStorageModeShared];
     
     matrix_float4x4* p_matrices = (matrix_float4x4*)[_matrices contents];
     p_matrices[0] = mvp_matrix;
-    p_matrices[1] = mv_matrix;
+    p_matrices[1] = _mv_matrix;
     
     // Initialize the solver and model.
     Element* q81_element = [[Element alloc] init];
@@ -422,17 +431,14 @@
                 
                 // store frame data
                 NSUInteger numVertices = 2 * _num_elems * _rendering_verts_per_elem;
-                NSUInteger numMatrices = 2;
                 NSUInteger numIndexes = 3 * _num_elems * total_tris;
                 FrameData *frameData = [[FrameData alloc] initWithVertexCount:numVertices
-                                                                  matrixCount:numMatrices
                                                                    indexCount:numIndexes
                                                                           fps:fps
                                                                       runtime:runtime
                                                                      solution:solution
                                                                         error:error];
                 [frameData copyVertexData:vertexData];
-                [frameData copyMatrixData:matrixData];
                 [frameData copyIndexData:indexData];
                 
                 [self.frameDataArray addObject:frameData];
@@ -558,7 +564,6 @@
     
     // Update the buffer contents with the frame data
     memcpy([_render_verts contents], frameData.vertices, sizeof(vector_float4) * frameData.vertexCount);
-    memcpy([_matrices contents], frameData.matrices, sizeof(matrix_float4x4) * frameData.matrixCount);
     memcpy([_render_triangles contents], frameData.indices, sizeof(uint32_t) * frameData.indexCount);
     
     // Update the labels
@@ -572,6 +577,63 @@
         _frameIndex = frameIndex;
         [self updateFrameData];
     }
+}
+
+- (void)setRotation:(vector_float3)rotation {
+    if (_isPseudoSimMode == YES) {
+        self.cameraRotation = rotation;
+        [self rotateCamera];
+    }
+}
+
+- (void)setZoom:(float)zoom {
+    if (_isPseudoSimMode == YES) {
+        self.cameraZoom = zoom;
+        [self zoomCamera];
+    }
+}
+
+- (void)rotateCamera {
+    // Translation matrices to move the object to the origin and back
+    matrix_float4x4 translation_to_origin = matrix_float4x4_translation((vector_float3){0.0, 0.0, _offset});
+    matrix_float4x4 translation_back = matrix_float4x4_translation((vector_float3){0.0, 0.0, -_offset});
+
+    // Rotation matrices around the x, y, and z axes
+    matrix_float4x4 rotate_x = matrix_float4x4_rotation((vector_float3){1.0, 0.0, 0.0}, self.cameraRotation.x);
+    matrix_float4x4 rotate_y = matrix_float4x4_rotation((vector_float3){0.0, 1.0, 0.0}, self.cameraRotation.y);
+    
+    // Combine rotations
+    matrix_float4x4 rotation_matrix = matrix_multiply(rotate_y, rotate_x);
+    
+    // Apply transformations: move to origin, rotate, then move back
+    matrix_float4x4 transformation_matrix = matrix_multiply(translation_back, matrix_multiply(rotation_matrix, translation_to_origin));
+    
+    [self updateCamera: transformation_matrix];
+}
+
+- (void)zoomCamera {
+    // Translation matrices to move the object
+    matrix_float4x4 translate = matrix_float4x4_translation((vector_float3){0.0, 0.0, self.cameraZoom});
+    _offset -= self.cameraZoom;
+    
+    // Apply transformations
+    matrix_float4x4 transformation_matrix = translate;
+    
+    [self updateCamera: transformation_matrix];
+}
+
+
+- (void)updateCamera:(matrix_float4x4) transformation_matrix {
+    // Update the model matrix
+    _mv_matrix = matrix_multiply(transformation_matrix, _mv_matrix);
+    
+    // Update view and projection matrices
+    matrix_float4x4 mvp_matrix = matrix_multiply(_projection_matrix, _mv_matrix);
+    
+    // Update matrix buffer
+    matrix_float4x4* p_matrices = (matrix_float4x4*)[_matrices contents];
+    p_matrices[0] = mvp_matrix;
+    p_matrices[1] = _mv_matrix;
 }
 
 @end    // SurfaceRenderer

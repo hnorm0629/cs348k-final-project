@@ -4,15 +4,12 @@
 //
 
 #import "ViewController.h"
-
 #import <MetalKit/MetalKit.h>
-
 #import "SurfaceRenderer.h"
 
 @implementation ViewController
 {
     MTKView*                _view;
-    
     SurfaceRenderer*        _renderer;
 }
 
@@ -25,9 +22,11 @@
     
     _renderer = [[SurfaceRenderer alloc] initWithMetalKitView: _view];
     [_renderer mtkView: _view drawableSizeWillChange: _view.drawableSize];
-    _view.delegate = _renderer;
-    
     _renderer.viewController = self;
+    
+    _view.delegate = _renderer;
+    _view.wantsLayer = YES;
+    _view.allowedTouchTypes = NSTouchTypeMaskDirect | NSTouchTypeMaskIndirect;
     
     // error label
     self.errorLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 100, 200, 20)];
@@ -71,14 +70,18 @@
     
     // frame slider
     self.frameSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(20, 20, self.view.bounds.size.width - 20, 20)];
-        self.frameSlider.minValue = 0;
-        self.frameSlider.maxValue = 0;
-        self.frameSlider.target = self;
-        self.frameSlider.action = @selector(sliderValueChanged:);
-        self.frameSlider.enabled = NO;
-        [self.view addSubview:self.frameSlider];
+    self.frameSlider.minValue = 0;
+    self.frameSlider.maxValue = 0;
+    self.frameSlider.target = self;
+    self.frameSlider.action = @selector(sliderValueChanged:);
+    self.frameSlider.enabled = NO;
+    [self.frameSlider setContinuous:YES];
+    [self.frameSlider setAction:@selector(sliderValueChanged:)];
+    [self.view addSubview:self.frameSlider];
+    
+    // add gesture recognizers
+    [self addGestureRecognizers];
 }
-
 
 - (void)setRepresentedObject:(id)representedObject {
     [super setRepresentedObject:representedObject];
@@ -88,6 +91,34 @@
 - (void)sliderValueChanged:(NSSlider *)sender {
     NSUInteger frameIndex = (NSUInteger)sender.integerValue;
     _renderer.frameIndex = frameIndex;
+}
+
+- (void)addGestureRecognizers {
+    // Add rotation gesture recognizer
+    NSRotationGestureRecognizer *rotateGestureRecognizer = [[NSRotationGestureRecognizer alloc] initWithTarget:self action:@selector(handleRotateGesture:)];
+    [self.view addGestureRecognizer:rotateGestureRecognizer];
+    
+    // Add pinch gesture recognizer for zoom
+    NSMagnificationGestureRecognizer *pinchGesture = [[NSMagnificationGestureRecognizer alloc] initWithTarget:self action:@selector(handlePinchGesture:)];
+    [self.view addGestureRecognizer:pinchGesture];
+}
+
+- (void)handleRotateGesture:(NSRotationGestureRecognizer *)gesture {
+    if (gesture.state == NSGestureRecognizerStateChanged) {
+        CGFloat rotation = gesture.rotation * 0.1;
+        [_renderer setRotation:rotation];
+    }
+}
+
+- (void)handlePinchGesture:(NSMagnificationGestureRecognizer *)gesture {
+    if (gesture.state == NSGestureRecognizerStateChanged) {
+        // Update camera zoom
+        float zoom = 1.0;
+        if (gesture.magnification < 0) {
+            zoom = -1.0;
+        }
+         [_renderer setZoom:zoom];
+    }
 }
 
 

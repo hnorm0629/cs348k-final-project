@@ -23,7 +23,13 @@
 @property (nonatomic) NSUInteger frameIndex;
 @property (nonatomic) BOOL isPseudoSimMode;
 
+@property (nonatomic) vector_float3 cameraPosition;
+@property (nonatomic) vector_float3 cameraRotation;
+@property (nonatomic) float cameraZoom;
+
 - (nonnull instancetype) initWithMetalKitView: (MTKView* __nonnull) mtkView;
+- (void)setRotation:(vector_float3)rotation;
+- (void)setZoom:(float)zoom;
 
 @end    // SurfaceRenderer
 
