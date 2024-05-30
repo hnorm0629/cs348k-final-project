@@ -118,7 +118,7 @@
     pipeline_desc.vertexFunction = [library newFunctionWithName: @"myVertexShader"];
     pipeline_desc.fragmentFunction = [library newFunctionWithName:@"myFragmentShader"];
     pipeline_desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-    pipeline_desc.depthAttachmentPixelFormat = MTLPixelFormatInvalid;
+    pipeline_desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
     
     @autoreleasepool
     {
@@ -464,6 +464,19 @@
         // create pipeline descriptor that describes how to render geometry
         MTLRenderPassDescriptor* pass_descriptor = [view currentRenderPassDescriptor];
         
+        MTLTextureDescriptor *depthTextureDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                                                                                    width:_viewport_size.x
+                                                                                                   height:_viewport_size.y
+                                                                                                mipmapped:NO];
+        depthTextureDesc.usage = MTLTextureUsageRenderTarget;
+        id<MTLTexture> depthTexture = [_device newTextureWithDescriptor:depthTextureDesc];
+        
+        // Attach depth texture to the pass descriptor
+        pass_descriptor.depthAttachment.texture = depthTexture;
+        pass_descriptor.depthAttachment.loadAction = MTLLoadActionClear;
+        pass_descriptor.depthAttachment.clearDepth = 1.0;
+        pass_descriptor.depthAttachment.storeAction = MTLStoreActionStore;
+        
         // encode render pass into command buffer
         id<MTLRenderCommandEncoder> command_encoder = [command_buffer renderCommandEncoderWithDescriptor: pass_descriptor];
         
@@ -471,6 +484,16 @@
         [command_encoder setRenderPipelineState: _pipeline_state];
         [command_encoder setFrontFacingWinding: MTLWindingCounterClockwise];
         [command_encoder setCullMode: MTLCullModeNone];
+        
+        // Create and set depth stencil state
+        MTLDepthStencilDescriptor *depthStencilDesc = [[MTLDepthStencilDescriptor alloc] init];
+        depthStencilDesc.depthCompareFunction = MTLCompareFunctionLess;
+        depthStencilDesc.depthWriteEnabled = YES;
+        id<MTLDepthStencilState> depthStencilState = [_device newDepthStencilStateWithDescriptor:depthStencilDesc];
+        [command_encoder setDepthStencilState: depthStencilState];
+        
+        // Set viewport
+        [command_encoder setViewport:(MTLViewport){0.0, 0.0, _viewport_size.x, _viewport_size.y, 0.0, 1.0}];
         
         // configure vertex buffer
         [command_encoder setVertexBuffer: _render_verts offset: 0 atIndex: 0];
