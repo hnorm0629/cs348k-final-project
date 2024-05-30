@@ -685,12 +685,8 @@
     matrix_float4x4 translation_to_origin = matrix_float4x4_translation((vector_float3){0.0, 0.0, _offset});
     matrix_float4x4 translation_back = matrix_float4x4_translation((vector_float3){0.0, 0.0, -_offset});
 
-    // Rotation matrices around the x, y, and z axes
-    matrix_float4x4 rotate_x = matrix_float4x4_rotation((vector_float3){1.0, 0.0, 0.0}, self.cameraRotation.x);
-    matrix_float4x4 rotate_y = matrix_float4x4_rotation((vector_float3){0.0, 1.0, 0.0}, self.cameraRotation.y);
-    
-    // Combine rotations
-    matrix_float4x4 rotation_matrix = matrix_multiply(rotate_y, rotate_x);
+    // Rotation matrices around the y axis
+    matrix_float4x4 rotation_matrix = matrix_float4x4_rotation((vector_float3){0.0, 1.0, 0.0}, self.cameraRotation.y);
     
     // Apply transformations: move to origin, rotate, then move back
     matrix_float4x4 transformation_matrix = matrix_multiply(translation_back, matrix_multiply(rotation_matrix, translation_to_origin));
