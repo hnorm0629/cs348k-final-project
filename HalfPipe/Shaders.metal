@@ -68,13 +68,18 @@ vertex VertexOut myVertexShader(const device VertexIn*  vertices    [[buffer(0)]
                                 constant float4*        colors      [[buffer(2)]],
                                 uint                    vid         [[vertex_id]])
 {
+    
+    float4x4 mvp_matrix = uniforms[0];
+    float4x4 mv_matrix = uniforms[1];
+    float3x3 normalMatrix = float3x3(mv_matrix.columns[0].xyz,
+                                     mv_matrix.columns[1].xyz,
+                                     mv_matrix.columns[2].xyz);
+    VertexIn vert = vertices[vid];
     VertexOut vertexOut;
-    vertexOut.position = uniforms[0] * vertices[vid].position;
-    vertexOut.eye = -(uniforms[1] * vertices[vid].position).xyz;
     
-    float3x3 normalMatrix = float3x3(uniforms[1].columns[0].xyz, uniforms[1].columns[1].xyz, uniforms[1].columns[2].xyz);
-    vertexOut.normal = normalMatrix * vertices[vid].normal.xyz;
-    
+    vertexOut.position = mvp_matrix * vert.position;
+    vertexOut.eye = -(mv_matrix * vert.position).xyz;
+    vertexOut.normal = normalMatrix * vert.normal.xyz;
     vertexOut.color = colors[vid];
 
     return vertexOut;
@@ -82,12 +87,15 @@ vertex VertexOut myVertexShader(const device VertexIn*  vertices    [[buffer(0)]
 
 fragment float4 myFragmentShader(VertexOut vert [[stage_in]])
 {
+    // calculate ambient term
     float3 ambientTerm = light.ambientColor * material.ambientColor;
     
+    // calculate diffuse term
     float3 normal = normalize(vert.normal);
     float diffuseIntensity = saturate(dot(normal, light.direction));
     float3 diffuseTerm = light.diffuseColor * material.diffuseColor * diffuseIntensity;
     
+    // calculate specular term
     float3 specularTerm(0);
     if (diffuseIntensity > 0)
     {
