@@ -13,7 +13,7 @@
     SurfaceRenderer*        _renderer;
 }
 
--(void) viewDidLoad
+- (void)viewDidLoad
 {
     [super viewDidLoad];
 
@@ -69,11 +69,11 @@
     [self addGestureRecognizers];
 }
 
-- (void) setRepresentedObject:(id) representedObject {
+- (void)setRepresentedObject:(id)representedObject {
     [super setRepresentedObject:representedObject];
 }
 
-- (NSTextField *) createLabelWithFrame:(NSRect) frame text:(NSString *) text {
+- (NSTextField *)createLabelWithFrame:(NSRect)frame text:(NSString *)text {
     NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
     [label setBezeled:NO];
     [label setDrawsBackground:NO];
@@ -83,17 +83,17 @@
     return label;
 }
 
-- (void) sliderValueChanged:(NSSlider *) sender {
+- (void)sliderValueChanged:(NSSlider *)sender {
     NSUInteger frameIndex = (NSUInteger)sender.integerValue;
     _renderer.frameIndex = frameIndex;
 }
 
-- (void) heatmapToggleChecked:(NSButton *) sender {
+- (void)heatmapToggleChecked:(NSButton *)sender {
     BOOL isChecked = [sender state] == NSControlStateValueOn;
     _renderer.toggleHeatmap = isChecked;
 }
 
-- (void) addGestureRecognizers {
+- (void)addGestureRecognizers {
     // add rotation gesture recognizer
     NSRotationGestureRecognizer *rotateGestureRecognizer = [[NSRotationGestureRecognizer alloc] initWithTarget:self action:@selector(handleRotateGesture:)];
     [self.view addGestureRecognizer:rotateGestureRecognizer];
@@ -103,7 +103,7 @@
     [self.view addGestureRecognizer:pinchGesture];
 }
 
-- (void) handleRotateGesture:(NSRotationGestureRecognizer *) gesture {
+- (void)handleRotateGesture:(NSRotationGestureRecognizer *)gesture {
     if (gesture.state == NSGestureRecognizerStateChanged) {
         // rotate mesh
         CGFloat rotation = gesture.rotation * 0.1;
@@ -111,7 +111,7 @@
     }
 }
 
-- (void) handlePinchGesture:(NSMagnificationGestureRecognizer *) gesture {
+- (void)handlePinchGesture:(NSMagnificationGestureRecognizer *)gesture {
     if (gesture.state == NSGestureRecognizerStateChanged) {
         // zoom camera
         float zoom = (gesture.magnification >= 0) ? 1.0 : -1.0;

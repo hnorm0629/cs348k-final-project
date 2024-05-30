@@ -13,18 +13,19 @@
 
 @interface SurfaceRenderer: NSObject<MTKViewDelegate>
 
+@property (nonatomic, strong) ViewController * _Nonnull viewController;
+
 @property (nonatomic, strong) NSTextField * _Nonnull errorLabel;
 @property (nonatomic, strong) NSTextField * _Nonnull solutionLabel;
 @property (nonatomic, strong) NSTextField * _Nonnull frameRateLabel;
 @property (nonatomic, strong) NSTextField * _Nonnull elapsedTimeLabel;
-@property (nonatomic, strong) ViewController * _Nonnull viewController;
 
-@property (nonatomic, strong) NSMutableArray<FrameData *> * _Nullable frameDataArray;
-@property (nonatomic) NSUInteger frameIndex;
 @property (nonatomic) BOOL isPseudoSimMode;
 @property (nonatomic) BOOL toggleHeatmap;
 
-@property (nonatomic) vector_float3 cameraPosition;
+@property (nonatomic, strong) NSMutableArray<FrameData *> * _Nullable frameDataArray;
+@property (nonatomic) NSUInteger frameIndex;
+
 @property (nonatomic) vector_float3 cameraRotation;
 @property (nonatomic) float cameraZoom;
 

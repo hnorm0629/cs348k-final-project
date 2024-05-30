@@ -7,20 +7,16 @@
 #import <Metal/Metal.h>
 #import <simd/simd.h>
 #import <Accelerate/Accelerate.h>
-
-#include <stdatomic.h>
-
 #import <AdaptableFiniteElementKit/AdaptableFiniteElementKit.h>
 
 #import "SurfaceRenderer.h"
 #import "GeometryGeneration.h"
+#import "TriangulateElement.h"
 #import "Utilities.h"
-
 #import "Element.h"
 #import "Model.h"
 
-#import "TriangulateElement.h"
-
+#include <stdatomic.h>
 
 @implementation SurfaceRenderer
 {
@@ -32,22 +28,20 @@
     NSUInteger                  _num_vertices;
     NSUInteger                  _verts_per_elem;
     
+    AFEKMesh*                    _solver_mesh;
+    
     double                      _offset;
-    matrix_float4x4             _model_matrix;
-    matrix_float4x4             _view_matrix;
     matrix_float4x4             _projection_matrix;
     matrix_float4x4             _mv_matrix;
     id<MTLBuffer>               _matrices;
-    
-    AFEKMesh*                    _solver_mesh;
-    
+        
     double                      _load_increment;
-    NSUInteger                  _max_load_steps;
     atomic_uint*                _load_step;
-    
+    NSUInteger                  _max_load_steps;
     NSUInteger                  _mid_elem;
     NSUInteger                  _num_elems;
     NSUInteger*                 _elements;
+    double*                     _sf;
     
     vector_float4*              _orig_render_verts;
     vector_float4*              _init_render_verts;
@@ -58,43 +52,40 @@
     
     id<MTLBuffer>               _colors;
     
-    double*                     _sf;
-    
-    // Temporary workspace arrays.
+    // temporary workspace arrays
     double*                     _p_reordered_soln;
     double*                     _p_elem_nodal_soln;
     double*                     _p_elem_render_soln;
     
     // framerate and runtime
-    CFTimeInterval              lastUpdateTimestamp;
-    double                      lastFrameTimestamp;
-    int                         frameCount;
-    double                      elapsedTime;
-    double                      totalRuntime;
+    int                         _frame_count;
+    double                      _last_frame_timestamp;
+    double                      _elapsed_time;
+    double                      _total_runtime;
 }
 
--(nonnull instancetype) initWithMetalKitView: (MTKView* __nonnull) mtkView
+- (nonnull instancetype)initWithMetalKitView:(MTKView* __nonnull)mtkView
 {
     self = [super init];
     if (self == nil)
         return nil;
     
-    // initialize frame data array
+    _offset = 15.0;
+    _frame_count = 0;
+    _last_frame_timestamp = 0.0;
+    _elapsed_time = 0.0;
+    _total_runtime = 0.0;
+
     self.frameDataArray = [NSMutableArray array];
     self.isPseudoSimMode = NO;
     self.toggleHeatmap = NO;
     self.frameIndex = 0;
-    lastUpdateTimestamp = 0;
-    frameCount = 0;
-    
-    // initialize camera parameters
     self.cameraRotation = (vector_float3){0.0, 0.0, 0.0};
     self.cameraZoom = 1.0;
     
     NSUInteger const elem_order = 8;
     NSUInteger const num_elems_x = 8;
     NSUInteger const num_elems_y = 8;
-    
     NSUInteger const rendering_triangles_per_side = 8;
     
     _load_increment = -15.0;
@@ -109,7 +100,6 @@
         .thickness = .094
     };
     
-    
     _device = mtkView.device;
     _command_queue = [_device newCommandQueue];
     id<MTLLibrary> library = [_device newDefaultLibrary];
@@ -123,14 +113,14 @@
     @autoreleasepool
     {
         NSError* error = nil;
-        _pipeline_state = [_device newRenderPipelineStateWithDescriptor: pipeline_desc
-                                                                  error: &error];
+        _pipeline_state = [_device newRenderPipelineStateWithDescriptor:pipeline_desc
+                                                                  error:&error];
     }
     
     [pipeline_desc release];
     [library release];
     
-    // Initialize geometry.
+    // initialize geometry
     _num_elems = num_elems_x * num_elems_y;
     
     NSUInteger num_bcs;
@@ -140,91 +130,89 @@
     _verts_per_elem = verts_per_side * verts_per_side;
     
     _elements = (NSUInteger*)malloc(_num_elems * _verts_per_elem * sizeof(NSUInteger));
-    double* positions = (double*)malloc(_num_vertices * 3 * sizeof(double));
-    double* normals = (double*)malloc(_num_vertices * 3 * sizeof(double));
+    double* positions = (double*)malloc(_num_vertices*3*sizeof(double));
+    double* normals = (double*)malloc(_num_vertices*3*sizeof(double));
     
     NSUInteger* bc_verts = (NSUInteger*)malloc(num_bcs * sizeof(NSUInteger));
     generateGeometry(elem_order, length, radius, num_elems_x, num_elems_y, _elements, positions, normals, bc_verts);
     
-    // Initailize the transformation matrices.
-    _offset = 15.0;
+    // initailize transformation matrices
     matrix_float4x4 rotate_x = matrix_float4x4_rotation((vector_float3){1.0, 0.0, 0.0}, 40.0*M_PI/180.0);
     matrix_float4x4 rotate_y = matrix_float4x4_rotation((vector_float3){0.0, 1.0, 0.0}, -M_PI/8.0);
-    _model_matrix = matrix_multiply(rotate_y, rotate_x);
-    _view_matrix = matrix_float4x4_translation((vector_float3){0.0, 0.0, -_offset});
+    matrix_float4x4 model_matrix = matrix_multiply(rotate_y, rotate_x);
+    matrix_float4x4 view_matrix = matrix_float4x4_translation((vector_float3){0.0, 0.0, -_offset});
     _projection_matrix = matrix_float4x4_perspective(1.0f, (2.0f * M_PI) / 5.0f, 1.0f, 100.0f);
-    
-    _mv_matrix = matrix_multiply(_view_matrix, _model_matrix);
+
+    _mv_matrix = matrix_multiply(view_matrix, model_matrix);
     matrix_float4x4 mvp_matrix = matrix_multiply(_projection_matrix, _mv_matrix);
     
-    _matrices = [_device newBufferWithLength: 2*sizeof(matrix_float4x4)
-                                     options: MTLResourceStorageModeShared];
-    
+    _matrices = [_device newBufferWithLength:2*sizeof(matrix_float4x4)
+                                     options:MTLResourceStorageModeShared];
     matrix_float4x4* p_matrices = (matrix_float4x4*)[_matrices contents];
     p_matrices[0] = mvp_matrix;
     p_matrices[1] = _mv_matrix;
     
-    // Initialize the solver and model.
+    // initialize solver and model
     Element* q81_element = [[Element alloc] init];
-    Model*   shell_model = [[Model alloc] initWithMaterialParameters: material];
+    Model*   shell_model = [[Model alloc] initWithMaterialParameters:material];
+    _solver_mesh = [[AFEKMesh alloc] initWithElements:_elements
+                                        elementStride:_verts_per_elem
+                                          elementType:q81_element
+                                          coordinates:positions
+                                              normals:normals
+                                     numberOfElements:_num_elems
+                                     numberOfVertices:_num_vertices
+                                                model:shell_model
+                                             dataType:AFEKDataTypeFloat64];
     
-    _solver_mesh = [[AFEKMesh alloc] initWithElements: _elements
-                                        elementStride: _verts_per_elem
-                                          elementType: q81_element
-                                          coordinates: positions
-                                              normals: normals
-                                     numberOfElements: _num_elems
-                                     numberOfVertices: _num_vertices
-                                                model: shell_model
-                                             dataType: AFEKDataTypeFloat64];
-    
-    // Apply boundary conditions.
+    // apply boundary conditions
     for (NSUInteger i = 0; i < num_bcs; ++i)
-        [_solver_mesh fixNode: bc_verts[i]];
+        [_solver_mesh fixNode:bc_verts[i]];
     
-    // Prepare a rendering triangle mesh.
+    // prepare rendering triangle mesh
     NSUInteger total_sqrs = rendering_triangles_per_side * rendering_triangles_per_side;
     NSUInteger total_tris = total_sqrs * 2;
     NSUInteger rendering_verts_per_side = rendering_triangles_per_side + 1;
     _rendering_verts_per_elem = rendering_verts_per_side * rendering_verts_per_side;
     
-    vector_double2* elem_triangle_verts = (vector_double2*)malloc(_rendering_verts_per_elem * sizeof(vector_double2));
-    NSUInteger* elem_triangles = (NSUInteger*)malloc(3 * total_tris * sizeof(NSUInteger));
+    vector_double2* elem_triangle_verts = (vector_double2*)malloc(_rendering_verts_per_elem*sizeof(vector_double2));
+    NSUInteger* elem_triangles = (NSUInteger*)malloc(3*total_tris*sizeof(NSUInteger));
     
-    _render_verts = [_device newBufferWithLength: 2 * _num_elems * _rendering_verts_per_elem * sizeof(vector_float4)
-                                         options: MTLResourceStorageModeShared];
-    _render_triangles = [_device newBufferWithLength: 3 * _num_elems * total_tris * sizeof(uint32_t)
-                                             options: MTLResourceStorageModeShared];
+    _render_verts = [_device newBufferWithLength:2*_num_elems*_rendering_verts_per_elem*sizeof(vector_float4)
+                                         options:MTLResourceStorageModeShared];
+    _render_triangles = [_device newBufferWithLength:3*_num_elems*total_tris*sizeof(uint32_t)
+                                             options:MTLResourceStorageModeShared];
     
-    _init_render_verts = (vector_float4*)malloc(2 * _num_elems * _rendering_verts_per_elem * sizeof(vector_float4));
-    
+    // initialize color buffer
     NSUInteger num_verts = _num_elems * _rendering_verts_per_elem;
-    _colors = [_device newBufferWithLength: num_verts * sizeof(vector_float4)
-                                   options: MTLResourceStorageModeShared];
+    _colors = [_device newBufferWithLength:num_verts*sizeof(vector_float4)
+                                   options:MTLResourceStorageModeShared];
     vector_float4* p_colors = (vector_float4*)[_colors contents];
     for (NSUInteger i = 0; i < num_verts; ++i) {
-        // set color to white
+        // set default color to white
         p_colors[i] = (vector_float4){1.0, 1.0, 1.0, 1.0};
     }
     
+    // initialize initial vertices
     _orig_render_verts = (vector_float4*)malloc(2*_num_elems*_rendering_verts_per_elem*sizeof(vector_float4));
+    _init_render_verts = (vector_float4*)malloc(2*_num_elems*_rendering_verts_per_elem*sizeof(vector_float4));
     
     _num_render_triangles = _num_elems * total_tris;
     GenerateTriangles(rendering_triangles_per_side, 0, elem_triangle_verts, elem_triangles);
     
-    // Interpolating functions to get the rendering vertices.
-    _sf = (double*)malloc(_rendering_verts_per_elem * _verts_per_elem * sizeof(double));
-    double* ldsf0 = (double*)malloc(_rendering_verts_per_elem * _verts_per_elem * sizeof(double));
-    double* ldsf1 = (double*)malloc(_rendering_verts_per_elem * _verts_per_elem * sizeof(double));
-    [q81_element generateShapeValuesAtPoints: elem_triangle_verts
-                              numberOfPoints: _rendering_verts_per_elem
-                                shapeResults: _sf
-                      localDiffShape1Results: ldsf0
-                      localDiffShape2Results: ldsf1
-                              shapeRowStride: _verts_per_elem];
+    // interpolating functions to get rendering vertices
+    _sf = (double*)malloc(_rendering_verts_per_elem*_verts_per_elem*sizeof(double));
+    double* ldsf0 = (double*)malloc(_rendering_verts_per_elem*_verts_per_elem*sizeof(double));
+    double* ldsf1 = (double*)malloc(_rendering_verts_per_elem*_verts_per_elem*sizeof(double));
+    [q81_element generateShapeValuesAtPoints:elem_triangle_verts
+                              numberOfPoints:_rendering_verts_per_elem
+                                shapeResults:_sf
+                      localDiffShape1Results:ldsf0
+                      localDiffShape2Results:ldsf1
+                              shapeRowStride:_verts_per_elem];
     
-    double* temp = (double*)malloc(_verts_per_elem * 3 * sizeof(double));
-    double* temp2 = (double*)malloc(_rendering_verts_per_elem * 3 * sizeof(double));
+    double* temp = (double*)malloc(_verts_per_elem*3*sizeof(double));
+    double* temp2 = (double*)malloc(_rendering_verts_per_elem*3*sizeof(double));
     uint32_t* p_render_triangles = (uint32_t*)[_render_triangles contents];
     vector_float4* p_render_verts = (vector_float4*)[_render_verts contents];
     for (NSUInteger i = 0; i < _num_elems; ++i)
@@ -235,7 +223,7 @@
         uint32_t* p_tris = p_render_triangles + 3*i*total_tris;
         uint32_t tri_elem_offset = (uint32_t)(i*_rendering_verts_per_elem);
         
-        // Collect nodal coordinates for element i.
+        // collect nodal coordinates for element i
         for (NSUInteger j = 0; j < _verts_per_elem; ++j)
         {
             NSUInteger vert = p_element[j];
@@ -244,7 +232,7 @@
             temp[3*j + 2] = positions[3*vert + 2];
         }
         
-        // Interpolate to this element's rendering points.
+        // interpolate to this element's rendering points
         cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, (int)_rendering_verts_per_elem, 3, (int)_verts_per_elem, 1.0, _sf, (int)_verts_per_elem, temp, 3, 0.0, temp2, 3);
         
         for (NSUInteger j = 0; j < _rendering_verts_per_elem; ++j)
@@ -260,7 +248,7 @@
             p_orig_rverts[2*j + 0].w = 1.0f;
         }
         
-        // And normals
+        // and normals
         for (NSUInteger j = 0; j < _verts_per_elem; ++j)
         {
             NSUInteger vert = p_element[j];
@@ -269,7 +257,7 @@
             temp[3*j + 2] = normals[3*vert + 2];
         }
         
-        // Interpolate to this element's rendering points.
+        // interpolate to this element's rendering points
         cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, (int)_rendering_verts_per_elem, 3, (int)_verts_per_elem, 1.0, _sf, (int)_verts_per_elem, temp, 3, 0.0, temp2, 3);
         
         for (NSUInteger j = 0; j < _rendering_verts_per_elem; ++j)
@@ -308,12 +296,12 @@
     [q81_element release];
     [shell_model release];
     
-    // Save initial render verts.
+    // save initial render verts
     memcpy(_init_render_verts, [_render_verts contents], 2 * _num_elems * _rendering_verts_per_elem * sizeof(vector_float4));
     
     NSLog(@"Beginning simulation...");
     
-    // Apply a force.
+    // apply a force
     _mid_elem = ((num_elems_y >> 1) - 1) * num_elems_x;
     [_solver_mesh applyPointForce: (vector_double3){0.0, 0.0, _load_increment}
                           element: _mid_elem
@@ -323,8 +311,8 @@
     atomic_store_explicit(_load_step, 1, memory_order_relaxed);
     
     _p_reordered_soln = (double*)malloc(_num_vertices*7*sizeof(double));
-    _p_elem_nodal_soln = (double*)malloc(_verts_per_elem * 7 * sizeof(double));
-    _p_elem_render_soln = (double*)malloc(_rendering_verts_per_elem * 7 * sizeof(double));
+    _p_elem_nodal_soln = (double*)malloc(_verts_per_elem*7*sizeof(double));
+    _p_elem_render_soln = (double*)malloc(_rendering_verts_per_elem*7*sizeof(double));
     
     return self;
 }
@@ -333,22 +321,17 @@
 {
     [_device release];
     [_command_queue release];
-    
     [_pipeline_state release];
-    
-    [_matrices release];
-    
     [_solver_mesh release];
     
-    free(_load_step);
-    
+    [_matrices release];
     [_render_verts release];
     [_render_triangles release];
     
+    free(_orig_render_verts);
+    free(_load_step);
     free(_elements);
     free(_sf);
-    
-    free(_orig_render_verts);
     
     free(_p_reordered_soln);
     free(_p_elem_nodal_soln);
@@ -357,10 +340,10 @@
     [super dealloc];
 }
 
--(void)drawInMTKView: (nonnull MTKView*) view
+- (void)drawInMTKView:(nonnull MTKView*)view
 {
-    // this if-block steps through simulation and goes false when simulation completes
     if (self.isPseudoSimMode == NO) {
+        // if initial simulation run...
         if (atomic_load_explicit(_load_step, memory_order_relaxed) < _max_load_steps)
         {
             // run the simulation for a single iteration
@@ -373,11 +356,12 @@
                 
                 if (err <= .01)
                 {
-                    [_solver_mesh applyPointForce: (vector_double3){0.0, 0.0, _load_increment}
-                                          element: _mid_elem
-                                         location: (vector_double3){-1.0, 1.0, 1.0}];        // change location of force
+                    [_solver_mesh applyPointForce:(vector_double3){0.0, 0.0, _load_increment}
+                                          element:_mid_elem
+                                         location:(vector_double3){-1.0, 1.0, 1.0}];
                     atomic_fetch_add_explicit(_load_step, 1, memory_order_relaxed);
                 }
+                // TODO: allow force location update
                 
                 vector_float4* p_render_verts = (vector_float4*)[_render_verts contents];
                 
@@ -464,6 +448,7 @@
         // create pipeline descriptor that describes how to render geometry
         MTLRenderPassDescriptor* pass_descriptor = [view currentRenderPassDescriptor];
         
+        // add depth texture
         MTLTextureDescriptor *depthTextureDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
                                                                                                     width:_viewport_size.x
                                                                                                    height:_viewport_size.y
@@ -471,106 +456,95 @@
         depthTextureDesc.usage = MTLTextureUsageRenderTarget;
         id<MTLTexture> depthTexture = [_device newTextureWithDescriptor:depthTextureDesc];
         
-        // Attach depth texture to the pass descriptor
+        // attach depth texture to pass descriptor
         pass_descriptor.depthAttachment.texture = depthTexture;
         pass_descriptor.depthAttachment.loadAction = MTLLoadActionClear;
         pass_descriptor.depthAttachment.clearDepth = 1.0;
         pass_descriptor.depthAttachment.storeAction = MTLStoreActionStore;
         
         // encode render pass into command buffer
-        id<MTLRenderCommandEncoder> command_encoder = [command_buffer renderCommandEncoderWithDescriptor: pass_descriptor];
+        id<MTLRenderCommandEncoder> command_encoder = [command_buffer renderCommandEncoderWithDescriptor:pass_descriptor];
         
         // configure rendering pass
-        [command_encoder setRenderPipelineState: _pipeline_state];
-        [command_encoder setFrontFacingWinding: MTLWindingCounterClockwise];
-        [command_encoder setCullMode: MTLCullModeNone];
+        [command_encoder setRenderPipelineState:_pipeline_state];
+        [command_encoder setFrontFacingWinding:MTLWindingCounterClockwise];
+        [command_encoder setCullMode:MTLCullModeNone];
         
-        // Create and set depth stencil state
+        // create and set depth stencil state
         MTLDepthStencilDescriptor *depthStencilDesc = [[MTLDepthStencilDescriptor alloc] init];
         depthStencilDesc.depthCompareFunction = MTLCompareFunctionLess;
         depthStencilDesc.depthWriteEnabled = YES;
         id<MTLDepthStencilState> depthStencilState = [_device newDepthStencilStateWithDescriptor:depthStencilDesc];
-        [command_encoder setDepthStencilState: depthStencilState];
+        [command_encoder setDepthStencilState:depthStencilState];
         
-        // Set viewport
+        // set viewport
         [command_encoder setViewport:(MTLViewport){0.0, 0.0, _viewport_size.x, _viewport_size.y, 0.0, 1.0}];
         
         // configure vertex buffer
-        [command_encoder setVertexBuffer: _render_verts offset: 0 atIndex: 0];
-        [command_encoder setVertexBuffer: _matrices offset: 0 atIndex: 1];
-        [command_encoder setVertexBuffer: _colors offset: 0 atIndex: 2];
+        [command_encoder setVertexBuffer:_render_verts offset:0 atIndex:0];
+        [command_encoder setVertexBuffer:_matrices offset:0 atIndex:1];
+        [command_encoder setVertexBuffer:_colors offset:0 atIndex:2];
         
         // encode draw command
-        [command_encoder drawIndexedPrimitives: MTLPrimitiveTypeTriangle
-                                    indexCount: 3*_num_render_triangles
-                                     indexType: MTLIndexTypeUInt32
-                                   indexBuffer: _render_triangles
-                             indexBufferOffset: 0];
+        [command_encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                                    indexCount:3*_num_render_triangles
+                                     indexType:MTLIndexTypeUInt32
+                                   indexBuffer:_render_triangles
+                             indexBufferOffset:0];
         
         // send endEncoding message to the command encoder
         [command_encoder endEncoding];
         
         // trigger display of drawable and commit the command buffer
-        [command_buffer presentDrawable: view.currentDrawable];
+        [command_buffer presentDrawable:view.currentDrawable];
         [command_buffer commit];
     }
 }
 
-
--(void)mtkView: (nonnull MTKView*) view drawableSizeWillChange: (CGSize) size
+- (void)mtkView:(nonnull MTKView*)view drawableSizeWillChange:(CGSize)size
 {
     _viewport_size.x = size.width;
     _viewport_size.y = size.height;
 }
 
-/**
- * Measure and display frame rate of simulation.
- */
 - (NSDictionary *)measureFrameRate {
     // get current time
     CFTimeInterval currentTimestamp = CACurrentMediaTime();
-    if (lastFrameTimestamp == 0) {
-        lastFrameTimestamp = currentTimestamp;
+    if (_last_frame_timestamp == 0) {
+        _last_frame_timestamp = currentTimestamp;
         return @{@"fps": @0.0, @"runtime": @0.0};
     }
     
     // increment frame and elapsed time
-    frameCount++;
-    elapsedTime += currentTimestamp - lastFrameTimestamp;
-    totalRuntime += currentTimestamp - lastFrameTimestamp;
-    lastFrameTimestamp = currentTimestamp;
+    _frame_count++;
+    _elapsed_time += (currentTimestamp - _last_frame_timestamp);
+    _total_runtime += (currentTimestamp - _last_frame_timestamp);
+    _last_frame_timestamp = currentTimestamp;
     
     // calculate frame rate
     double fps = 0.0;
-    if (elapsedTime >= 1.0) {
-        fps = frameCount / elapsedTime;
+    if (_elapsed_time >= 1.0) {
+        fps = _frame_count / _elapsed_time;
         if (self.frameRateLabel != nil) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 self.frameRateLabel.stringValue = [NSString stringWithFormat:@"Frame Rate: %.2f FPS", fps];
             });
         }
-        frameCount = 0;
-        elapsedTime = 0;
+        _frame_count = 0;
+        _elapsed_time = 0.0;
     }
     
     // calculate total elapsed time
     if (!self.isPseudoSimMode && self.elapsedTimeLabel != nil) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Runtime: %.2f sec", totalRuntime];
+            self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Runtime: %.2f sec", _total_runtime];
         });
     }
     
-    return @{@"fps": @(fps), @"runtime": @(totalRuntime)};
+    return @{@"fps": @(fps), @"runtime": @(_total_runtime)};
 }
 
-
-/**
- * Display current frame's solution and error values to 6 sig figs.
- *
- * @param psoln solution value
- * @param err error value
- */
-- (void)displaySoln: (double const*) psoln err: (double) err {
+- (void)displaySoln:(double const*)psoln err:(double)err {
     dispatch_async(dispatch_get_main_queue(), ^{
         self.errorLabel.stringValue = [NSString stringWithFormat:@"Error: %.4f", err];
         self.solutionLabel.stringValue = [NSString stringWithFormat:@"Solution: %.4f", *psoln];
@@ -580,7 +554,6 @@
 - (void)simulationDidComplete {
     NSLog(@"Simulation complete!");
     
-    // update the slider
     dispatch_async(dispatch_get_main_queue(), ^{
         self.viewController.frameSlider.maxValue = self.frameDataArray.count - 1;
         self.viewController.frameSlider.doubleValue = self.frameDataArray.count - 1;
@@ -592,11 +565,11 @@
 - (void)updateFrameData {
     FrameData *frameData = self.frameDataArray[self.frameIndex];
     
-    // Update the buffer contents with the frame data
+    // populate buffer contents with frame data
     memcpy([_render_verts contents], frameData.vertices, sizeof(vector_float4) * frameData.vertexCount);
     memcpy([_render_triangles contents], frameData.indices, sizeof(uint32_t) * frameData.indexCount);
     
-    // Update the labels
+    // update labels (not fps)
     self.errorLabel.stringValue = [NSString stringWithFormat:@"Error: %.4f", frameData.error];
     self.solutionLabel.stringValue = [NSString stringWithFormat:@"Solution: %.4f", frameData.solution];
     self.elapsedTimeLabel.stringValue = [NSString stringWithFormat:@"Runtime: %.2f sec", frameData.runtime];
@@ -622,58 +595,68 @@
     vector_float4* curr_verts = (vector_float4 *)[_render_verts contents];
     vector_float4* colors = (vector_float4*)[_colors contents];
     
-    // Array to store displacement magnitudes for each vertex
     NSUInteger num_idxs = 2 * _num_elems * _rendering_verts_per_elem;
+    NSUInteger num_verts = _num_elems * _rendering_verts_per_elem;
+    
+    // create displacement magnitudes array
     double displacementMagnitudes[5184] = {0.0};
     double maxDisplacement = 0.0;
 
-    for (NSUInteger v = 0; v < num_idxs; v += 2) {     // alternating pos and norm
+    // for each vertex position (alternates with vertex norm)
+    for (NSUInteger v = 0; v < num_idxs; v += 2) {
         vector_float4 currentPos = curr_verts[v];
         vector_float4 displacement = currentPos - init_verts[v];
         double displacementMagnitude = simd_length(displacement.xyz);
         NSUInteger d = v / 2;
         displacementMagnitudes[d] = displacementMagnitude;
         
-        // Update the maximum displacement
+        // update maximum displacement
         if (displacementMagnitude > maxDisplacement) {
             maxDisplacement = displacementMagnitude;
         }
     }
 
-    // Apply or remove heatmap based on the checkbox state
-    for (NSUInteger v = 0; v < 5184; ++v)
+    // apply heatmap based on toggle
+    for (NSUInteger v = 0; v < num_verts; ++v)
     {
         vector_float4 vertexColor = (vector_float4){1.0, 1.0, 1.0, 1.0};
         if (self.toggleHeatmap == YES) {
-            NSColor *ns_color = [self mapDisplacementToColor:displacementMagnitudes[v] withMaxDisplacement:maxDisplacement];
-            vertexColor = (vector_float4){ns_color.redComponent, ns_color.greenComponent, ns_color.blueComponent, ns_color.alphaComponent};
+            NSColor *ns_color = [self mapDisplacementToColor:displacementMagnitudes[v] 
+                                         withMaxDisplacement:maxDisplacement];
+            vertexColor = (vector_float4){
+                ns_color.redComponent,
+                ns_color.greenComponent,
+                ns_color.blueComponent,
+                ns_color.alphaComponent};
         }
+        
+        // populate vertex color buffer
         colors[v] = vertexColor;
     }
 }
 
-// Method to map displacement magnitude to color (placeholder implementation)
 - (NSColor *)mapDisplacementToColor:(double)displacement withMaxDisplacement:(double)maxDisplacement {
     double normalizedDisplacement = displacement / maxDisplacement;
     
+    // map displacement magnitude to color
     NSColor *color;
     if (normalizedDisplacement < 0.25) {
-        // Interpolate between blue and green
+        // interpolate between blue and green
         color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:0.0 green:0.0 blue:1.0 alpha:1.0]
                                          to:[NSColor colorWithCalibratedRed:0.0 green:1.0 blue:0.0 alpha:1.0]
                                  withFactor:(normalizedDisplacement / 0.25)];
     } else if (normalizedDisplacement < 0.5) {
-        // Interpolate between green and yellow
+        // interpolate between green and yellow
         color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:0.0 green:1.0 blue:0.0 alpha:1.0]
                                        to:[NSColor colorWithCalibratedRed:1.0 green:1.0 blue:0.0 alpha:1.0]
                                withFactor:((normalizedDisplacement - 0.25) / 0.25)];
     } else if (normalizedDisplacement < 0.75) {
-        // Interpolate between yellow and red
+        // interpolate between yellow and red
         color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:1.0 green:1.0 blue:0.0 alpha:1.0]
                                        to:[NSColor colorWithCalibratedRed:1.0 green:0.0 blue:0.0 alpha:1.0]
                                withFactor:((normalizedDisplacement - 0.5) / 0.25)];
     } else {
-        // Interpolate between yellow and red
+        // interpolate between yellow and red
         color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:1.0 green:1.0 blue:0.0 alpha:1.0]
                                        to:[NSColor colorWithCalibratedRed:1.0 green:0.0 blue:0.0 alpha:1.0]
                                withFactor:((normalizedDisplacement - 0.5) / 0.25)];
@@ -683,13 +666,19 @@
 }
 
 - (NSColor *)interpolateColorFrom:(NSColor *)color1 to:(NSColor *)color2 withFactor:(double)factor {
+    // calculate red, green, and blue components
     double red = color1.redComponent + (color2.redComponent - color1.redComponent) * factor;
     double green = color1.greenComponent + (color2.greenComponent - color1.greenComponent) * factor;
     double blue = color1.blueComponent + (color2.blueComponent - color1.blueComponent) * factor;
-    return [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
+    NSColor *interpolated_color = [NSColor colorWithCalibratedRed:red
+                                                            green:green
+                                                             blue:blue
+                                                            alpha:1.0];
+    return interpolated_color;
 }
 
 - (void)setRotation:(vector_float3)rotation {
+    // only rotate mesh if simulation done
     if (_isPseudoSimMode == YES) {
         self.cameraRotation = rotation;
         [self rotateCamera];
@@ -697,6 +686,7 @@
 }
 
 - (void)setZoom:(float)zoom {
+    // only zoom if simulation done
     if (_isPseudoSimMode == YES) {
         self.cameraZoom = zoom;
         [self zoomCamera];
@@ -704,14 +694,14 @@
 }
 
 - (void)rotateCamera {
-    // Translation matrices to move the object to the origin and back
+    // translation matrices
     matrix_float4x4 translation_to_origin = matrix_float4x4_translation((vector_float3){0.0, 0.0, _offset});
     matrix_float4x4 translation_back = matrix_float4x4_translation((vector_float3){0.0, 0.0, -_offset});
 
-    // Rotation matrices around the y axis
+    // rotation matrix around y axis
     matrix_float4x4 rotation_matrix = matrix_float4x4_rotation((vector_float3){0.0, 1.0, 0.0}, self.cameraRotation.y);
     
-    // Apply transformations: move to origin, rotate, then move back
+    // apply transformations: move to origin, rotate, then move back
     matrix_float4x4 transformation_matrix = matrix_multiply(translation_back, matrix_multiply(rotation_matrix, translation_to_origin));
     
     [self updateCamera: transformation_matrix];
@@ -727,15 +717,12 @@
     }
 }
 
-
 - (void)updateCamera:(matrix_float4x4) transformation_matrix {
-    // Update the model matrix
+    // update mv and mvp matrices
     _mv_matrix = matrix_multiply(transformation_matrix, _mv_matrix);
-    
-    // Update view and projection matrices
     matrix_float4x4 mvp_matrix = matrix_multiply(_projection_matrix, _mv_matrix);
     
-    // Update matrix buffer
+    // update matrix buffer
     matrix_float4x4* p_matrices = (matrix_float4x4*)[_matrices contents];
     p_matrices[0] = mvp_matrix;
     p_matrices[1] = _mv_matrix;
