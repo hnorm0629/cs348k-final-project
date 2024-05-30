@@ -199,7 +199,6 @@
     _init_render_verts = (vector_float4*)malloc(2 * _num_elems * _rendering_verts_per_elem * sizeof(vector_float4));
     
     NSUInteger num_verts = _num_elems * _rendering_verts_per_elem;
-    NSLog(@"num_verts: %lu", num_verts);
     _colors = [_device newBufferWithLength: num_verts * sizeof(vector_float4)
                                    options: MTLResourceStorageModeShared];
     vector_float4* p_colors = (vector_float4*)[_colors contents];
@@ -632,8 +631,39 @@
 
 // Method to map displacement magnitude to color (placeholder implementation)
 - (NSColor *)mapDisplacementToColor:(double)displacement withMaxDisplacement:(double)maxDisplacement {
-    // double normalizedDisplacement = displacement / maxDisplacement;
-    return [NSColor colorWithCalibratedRed:(1.0 * displacement) green:0.0 blue:(1.0 - displacement) alpha:1.0];
+    double normalizedDisplacement = displacement / maxDisplacement;
+    
+    NSColor *color;
+    if (normalizedDisplacement < 0.25) {
+        // Interpolate between blue and green
+        color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:0.0 green:0.0 blue:1.0 alpha:1.0]
+                                         to:[NSColor colorWithCalibratedRed:0.0 green:1.0 blue:0.0 alpha:1.0]
+                                 withFactor:(normalizedDisplacement / 0.25)];
+    } else if (normalizedDisplacement < 0.5) {
+        // Interpolate between green and yellow
+        color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:0.0 green:1.0 blue:0.0 alpha:1.0]
+                                       to:[NSColor colorWithCalibratedRed:1.0 green:1.0 blue:0.0 alpha:1.0]
+                               withFactor:((normalizedDisplacement - 0.25) / 0.25)];
+    } else if (normalizedDisplacement < 0.75) {
+        // Interpolate between yellow and red
+        color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:1.0 green:1.0 blue:0.0 alpha:1.0]
+                                       to:[NSColor colorWithCalibratedRed:1.0 green:0.0 blue:0.0 alpha:1.0]
+                               withFactor:((normalizedDisplacement - 0.5) / 0.25)];
+    } else {
+        // Interpolate between yellow and red
+        color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:1.0 green:1.0 blue:0.0 alpha:1.0]
+                                       to:[NSColor colorWithCalibratedRed:1.0 green:0.0 blue:0.0 alpha:1.0]
+                               withFactor:((normalizedDisplacement - 0.5) / 0.25)];
+    }
+    
+    return color;
+}
+
+- (NSColor *)interpolateColorFrom:(NSColor *)color1 to:(NSColor *)color2 withFactor:(double)factor {
+    double red = color1.redComponent + (color2.redComponent - color1.redComponent) * factor;
+    double green = color1.greenComponent + (color2.greenComponent - color1.greenComponent) * factor;
+    double blue = color1.blueComponent + (color2.blueComponent - color1.blueComponent) * factor;
+    return [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
 }
 
 - (void)setRotation:(vector_float3)rotation {
