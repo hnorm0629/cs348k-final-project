@@ -421,7 +421,6 @@
                 
                 // get vertex, matrix, index data
                 vector_float4 *vertexData = (vector_float4 *)[_render_verts contents];
-                matrix_float4x4 *matrixData = (matrix_float4x4 *)[_matrices contents];
                 uint32_t *indexData = (uint32_t *)[_render_triangles contents];
                 
                 // get total number of triangles
