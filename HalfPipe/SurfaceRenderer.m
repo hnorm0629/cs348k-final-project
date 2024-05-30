@@ -718,14 +718,13 @@
 }
 
 - (void)zoomCamera {
-    // Translation matrices to move the object
-    matrix_float4x4 translate = matrix_float4x4_translation((vector_float3){0.0, 0.0, self.cameraZoom});
-    _offset -= self.cameraZoom;
-    
-    // Apply transformations
-    matrix_float4x4 transformation_matrix = translate;
-    
-    [self updateCamera: transformation_matrix];
+    double newOffset = _offset - self.cameraZoom;
+    if (newOffset >= 13 && newOffset <= 90) {
+        // translate mesh toward camera to approximate zoom
+        _offset = newOffset;
+        matrix_float4x4 transformation_matrix = matrix_float4x4_translation((vector_float3){0.0, 0.0, self.cameraZoom});
+        [self updateCamera: transformation_matrix];
+    }
 }
 
 

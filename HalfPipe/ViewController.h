@@ -7,12 +7,13 @@
 
 @interface ViewController : NSViewController
 
-@property (nonatomic, strong) NSSlider *frameSlider;
-@property (nonatomic, strong) NSButton *heatmapToggle;
 @property (nonatomic, strong) NSTextField *errorLabel;
 @property (nonatomic, strong) NSTextField *solutionLabel;
+@property (nonatomic, strong) NSTextField *runtimeLabel;
 @property (nonatomic, strong) NSTextField *frameRateLabel;
-@property (nonatomic, strong) NSTextField *elapsedTimeLabel;
+
+@property (nonatomic, strong) NSButton *heatmapToggle;
+@property (nonatomic, strong) NSSlider *frameSlider;
 
 @property (nonatomic, strong) NSPanGestureRecognizer *panGestureRecognizer;
 
