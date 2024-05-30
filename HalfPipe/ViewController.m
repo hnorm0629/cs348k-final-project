@@ -29,7 +29,7 @@
     _view.allowedTouchTypes = NSTouchTypeMaskDirect | NSTouchTypeMaskIndirect;
     
     // error label
-    self.errorLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 100, 200, 20)];
+    self.errorLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 120, 200, 20)];
     [self.errorLabel setBezeled:NO];
     [self.errorLabel setDrawsBackground:NO];
     [self.errorLabel setEditable:NO];
@@ -37,7 +37,7 @@
     [self.view addSubview:self.errorLabel];
     
     // solution label
-    self.solutionLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 80, 200, 20)];
+    self.solutionLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 100, 200, 20)];
     [self.solutionLabel setBezeled:NO];
     [self.solutionLabel setDrawsBackground:NO];
     [self.solutionLabel setEditable:NO];
@@ -45,7 +45,7 @@
     [self.view addSubview:self.solutionLabel];
     
     // elapsed time label
-    self.elapsedTimeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 60, 200, 20)];
+    self.elapsedTimeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 80, 200, 20)];
     [self.elapsedTimeLabel setBezeled:NO];
     [self.elapsedTimeLabel setDrawsBackground:NO];
     [self.elapsedTimeLabel setEditable:NO];
@@ -54,7 +54,7 @@
     [self.view addSubview:self.elapsedTimeLabel];
     
     // frame rate label
-    self.frameRateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 40, 200, 20)];
+    self.frameRateLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(20, 60, 200, 20)];
     [self.frameRateLabel setBezeled:NO];
     [self.frameRateLabel setDrawsBackground:NO];
     [self.frameRateLabel setEditable:NO];
@@ -67,6 +67,15 @@
     _renderer.solutionLabel = self.solutionLabel;
     _renderer.frameRateLabel = self.frameRateLabel;
     _renderer.elapsedTimeLabel = self.elapsedTimeLabel;
+    
+    // heatmap toggle
+    self.heatmapToggle = [[NSButton alloc] initWithFrame:NSMakeRect(20, 40, 200, 24)];
+    [self.heatmapToggle setButtonType:NSButtonTypeSwitch];
+    [self.heatmapToggle setTitle:@"Show Displacement Heatmap"];
+    [self.heatmapToggle setTarget:self];
+    self.heatmapToggle.enabled = NO;
+    [self.heatmapToggle setAction:@selector(toggleHeatmap:)];
+    [self.view addSubview:self.heatmapToggle];
     
     // frame slider
     self.frameSlider = [[NSSlider alloc] initWithFrame:NSMakeRect(20, 20, self.view.bounds.size.width - 20, 20)];
@@ -86,6 +95,11 @@
 - (void)setRepresentedObject:(id)representedObject {
     [super setRepresentedObject:representedObject];
     // update the view, if already loaded
+}
+
+- (void)toggleHeatmap:(NSButton *)sender {
+    BOOL isChecked = [sender state] == NSControlStateValueOn;
+    _renderer.toggleHeatmap = isChecked;
 }
 
 - (void)sliderValueChanged:(NSSlider *)sender {

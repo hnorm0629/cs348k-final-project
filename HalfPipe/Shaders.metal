@@ -59,19 +59,23 @@ struct VertexOut
     float4 position [[position]];
     float3 eye;
     float3 normal;
+    float4 color;
 };
 
 
-vertex VertexOut myVertexShader(const device VertexIn*   vertices    [[buffer(0)]],
-                             constant float4x4*     uniforms    [[buffer(1)]],
-                             uint vid                           [[vertex_id]])
+vertex VertexOut myVertexShader(const device VertexIn*  vertices    [[buffer(0)]],
+                                constant float4x4*      uniforms    [[buffer(1)]],
+                                constant float4*        colors      [[buffer(2)]],
+                                uint                    vid         [[vertex_id]])
 {
     VertexOut vertexOut;
-    vertexOut.position = uniforms[0]*vertices[vid].position;
+    vertexOut.position = uniforms[0] * vertices[vid].position;
     vertexOut.eye = -(uniforms[1] * vertices[vid].position).xyz;
     
     float3x3 normalMatrix = float3x3(uniforms[1].columns[0].xyz, uniforms[1].columns[1].xyz, uniforms[1].columns[2].xyz);
     vertexOut.normal = normalMatrix * vertices[vid].normal.xyz;
+    
+    vertexOut.color = colors[vid];
 
     return vertexOut;
 }
@@ -93,5 +97,6 @@ fragment float4 myFragmentShader(VertexOut vert [[stage_in]])
         specularTerm = light.specularColor * material.specularColor * specularFactor;
     }
     
-    return float4(ambientTerm + diffuseTerm + specularTerm, 1);
+    float3 finalColor = ambientTerm + diffuseTerm + specularTerm;
+    return float4(finalColor, 1) * vert.color;
 }

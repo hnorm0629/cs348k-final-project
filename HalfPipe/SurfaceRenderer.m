@@ -25,11 +25,8 @@
 @implementation SurfaceRenderer
 {
     id<MTLDevice>               _device;
-    
     id<MTLRenderPipelineState>  _pipeline_state;
-    
     id<MTLCommandQueue>         _command_queue;
-    
     vector_uint2                _viewport_size;
     
     NSUInteger                  _num_vertices;
@@ -44,20 +41,22 @@
     
     AFEKMesh*                    _solver_mesh;
     
-    NSUInteger                  _mid_elem;
-    
     double                      _load_increment;
     NSUInteger                  _max_load_steps;
     atomic_uint*                _load_step;
     
+    NSUInteger                  _mid_elem;
     NSUInteger                  _num_elems;
     NSUInteger*                 _elements;
     
     vector_float4*              _orig_render_verts;
+    vector_float4*              _init_render_verts;
     id<MTLBuffer>               _render_verts;
     id<MTLBuffer>               _render_triangles;
     NSUInteger                  _num_render_triangles;
     NSUInteger                  _rendering_verts_per_elem;
+    
+    id<MTLBuffer>               _colors;
     
     double*                     _sf;
     
@@ -83,6 +82,7 @@
     // initialize frame data array
     self.frameDataArray = [NSMutableArray array];
     self.isPseudoSimMode = NO;
+    self.toggleHeatmap = NO;
     self.frameIndex = 0;
     lastUpdateTimestamp = 0;
     frameCount = 0;
@@ -98,7 +98,6 @@
     NSUInteger const rendering_triangles_per_side = 8;
     
     _load_increment = -15.0;
-    
     _max_load_steps = 200;
     
     double const length = 10.35;
@@ -112,16 +111,12 @@
     
     
     _device = mtkView.device;
-    
     _command_queue = [_device newCommandQueue];
-    
     id<MTLLibrary> library = [_device newDefaultLibrary];
     
     MTLRenderPipelineDescriptor* pipeline_desc = [MTLRenderPipelineDescriptor new];
-    
     pipeline_desc.vertexFunction = [library newFunctionWithName: @"myVertexShader"];
     pipeline_desc.fragmentFunction = [library newFunctionWithName:@"myFragmentShader"];
-    
     pipeline_desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     pipeline_desc.depthAttachmentPixelFormat = MTLPixelFormatInvalid;
     
@@ -133,7 +128,6 @@
     }
     
     [pipeline_desc release];
-    
     [library release];
     
     // Initialize geometry.
@@ -172,7 +166,6 @@
     
     // Initialize the solver and model.
     Element* q81_element = [[Element alloc] init];
-    
     Model*   shell_model = [[Model alloc] initWithMaterialParameters: material];
     
     _solver_mesh = [[AFEKMesh alloc] initWithElements: _elements
@@ -203,10 +196,21 @@
     _render_triangles = [_device newBufferWithLength: 3 * _num_elems * total_tris * sizeof(uint32_t)
                                              options: MTLResourceStorageModeShared];
     
+    _init_render_verts = (vector_float4*)malloc(2 * _num_elems * _rendering_verts_per_elem * sizeof(vector_float4));
+    
+    NSUInteger num_verts = _num_elems * _rendering_verts_per_elem;
+    NSLog(@"num_verts: %lu", num_verts);
+    _colors = [_device newBufferWithLength: num_verts * sizeof(vector_float4)
+                                   options: MTLResourceStorageModeShared];
+    vector_float4* p_colors = (vector_float4*)[_colors contents];
+    for (NSUInteger i = 0; i < num_verts; ++i) {
+        // set color to white
+        p_colors[i] = (vector_float4){1.0, 1.0, 1.0, 1.0};
+    }
+    
     _orig_render_verts = (vector_float4*)malloc(2*_num_elems*_rendering_verts_per_elem*sizeof(vector_float4));
     
     _num_render_triangles = _num_elems * total_tris;
-    
     GenerateTriangles(rendering_triangles_per_side, 0, elem_triangle_verts, elem_triangles);
     
     // Interpolating functions to get the rendering vertices.
@@ -304,6 +308,9 @@
     
     [q81_element release];
     [shell_model release];
+    
+    // Save initial render verts.
+    memcpy(_init_render_verts, [_render_verts contents], 2 * _num_elems * _rendering_verts_per_elem * sizeof(vector_float4));
     
     NSLog(@"Beginning simulation...");
     
@@ -469,6 +476,7 @@
         // configure vertex buffer
         [command_encoder setVertexBuffer: _render_verts offset: 0 atIndex: 0];
         [command_encoder setVertexBuffer: _matrices offset: 0 atIndex: 1];
+        [command_encoder setVertexBuffer: _colors offset: 0 atIndex: 2];
         
         // encode draw command
         [command_encoder drawIndexedPrimitives: MTLPrimitiveTypeTriangle
@@ -554,6 +562,7 @@
     dispatch_async(dispatch_get_main_queue(), ^{
         self.viewController.frameSlider.maxValue = self.frameDataArray.count - 1;
         self.viewController.frameSlider.doubleValue = self.frameDataArray.count - 1;
+        self.viewController.heatmapToggle.enabled = YES;
         self.viewController.frameSlider.enabled = YES;
     });
 }
@@ -575,7 +584,56 @@
     if (frameIndex < self.frameDataArray.count) {
         _frameIndex = frameIndex;
         [self updateFrameData];
+        [self updateHeatmap];
     }
+}
+
+- (void)setToggleHeatmap:(BOOL)toggleHeatmap {
+    if (_isPseudoSimMode == YES) {
+        _toggleHeatmap = toggleHeatmap;
+        [self updateHeatmap];
+    }
+}
+
+- (void)updateHeatmap {
+    vector_float4* init_verts = _init_render_verts;
+    vector_float4* curr_verts = (vector_float4 *)[_render_verts contents];
+    vector_float4* colors = (vector_float4*)[_colors contents];
+    
+    // Array to store displacement magnitudes for each vertex
+    NSUInteger num_idxs = 2 * _num_elems * _rendering_verts_per_elem;
+    double displacementMagnitudes[5184] = {0.0};
+    double maxDisplacement = 0.0;
+
+    for (NSUInteger v = 0; v < num_idxs; v += 2) {     // alternating pos and norm
+        vector_float4 currentPos = curr_verts[v];
+        vector_float4 displacement = currentPos - init_verts[v];
+        double displacementMagnitude = simd_length(displacement.xyz);
+        NSUInteger d = v / 2;
+        displacementMagnitudes[d] = displacementMagnitude;
+        
+        // Update the maximum displacement
+        if (displacementMagnitude > maxDisplacement) {
+            maxDisplacement = displacementMagnitude;
+        }
+    }
+
+    // Apply or remove heatmap based on the checkbox state
+    for (NSUInteger v = 0; v < 5184; ++v)
+    {
+        vector_float4 vertexColor = (vector_float4){1.0, 1.0, 1.0, 1.0};
+        if (self.toggleHeatmap == YES) {
+            NSColor *ns_color = [self mapDisplacementToColor:displacementMagnitudes[v] withMaxDisplacement:maxDisplacement];
+            vertexColor = (vector_float4){ns_color.redComponent, ns_color.greenComponent, ns_color.blueComponent, ns_color.alphaComponent};
+        }
+        colors[v] = vertexColor;
+    }
+}
+
+// Method to map displacement magnitude to color (placeholder implementation)
+- (NSColor *)mapDisplacementToColor:(double)displacement withMaxDisplacement:(double)maxDisplacement {
+    // double normalizedDisplacement = displacement / maxDisplacement;
+    return [NSColor colorWithCalibratedRed:(1.0 * displacement) green:0.0 blue:(1.0 - displacement) alpha:1.0];
 }
 
 - (void)setRotation:(vector_float3)rotation {

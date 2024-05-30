@@ -22,6 +22,7 @@
 @property (nonatomic, strong) NSMutableArray<FrameData *> * _Nullable frameDataArray;
 @property (nonatomic) NSUInteger frameIndex;
 @property (nonatomic) BOOL isPseudoSimMode;
+@property (nonatomic) BOOL toggleHeatmap;
 
 @property (nonatomic) vector_float3 cameraPosition;
 @property (nonatomic) vector_float3 cameraRotation;
