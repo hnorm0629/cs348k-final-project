@@ -53,6 +53,7 @@
     id<MTLBuffer>               _colors;
     MTLDepthStencilDescriptor * _depth_stencil_desc;
     id<MTLDepthStencilState>    _depth_stencil_state;
+    id<MTLTexture>              _depth_texture;
     
     // temporary workspace arrays
     double*                     _p_reordered_soln;
@@ -110,8 +111,7 @@
     pipeline_desc.vertexFunction = [library newFunctionWithName: @"myVertexShader"];
     pipeline_desc.fragmentFunction = [library newFunctionWithName:@"myFragmentShader"];
     pipeline_desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-//    pipeline_desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
-    pipeline_desc.depthAttachmentPixelFormat = MTLPixelFormatInvalid;
+    pipeline_desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
     
     @autoreleasepool
     {
@@ -334,6 +334,7 @@
     [_matrices release];
     [_solver_mesh release];
     [_depth_stencil_desc release];
+    [_depth_texture release];
     
     free(_load_step);
     
@@ -466,16 +467,8 @@
         // create pipeline descriptor that describes how to render geometry
         MTLRenderPassDescriptor* pass_descriptor = [view currentRenderPassDescriptor];
         
-//        // add depth texture
-//        MTLTextureDescriptor *depth_texture_desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
-//                                                                                                    width:_viewport_size.x
-//                                                                                                   height:_viewport_size.y
-//                                                                                                mipmapped:NO];
-//        depth_texture_desc.usage = MTLTextureUsageRenderTarget;
-//        id<MTLTexture> depth_texture = [_device newTextureWithDescriptor:depth_texture_desc];
-        
         // attach depth texture to pass descriptor
-//        pass_descriptor.depthAttachment.texture = depth_texture;
+        pass_descriptor.depthAttachment.texture = _depth_texture;
         pass_descriptor.depthAttachment.loadAction = MTLLoadActionClear;
         pass_descriptor.depthAttachment.clearDepth = 1.0;
         pass_descriptor.depthAttachment.storeAction = MTLStoreActionStore;
@@ -489,7 +482,7 @@
         [command_encoder setCullMode:MTLCullModeNone];
         
         // set depth stencil state
-//        [command_encoder setDepthStencilState:_depth_stencil_state];
+        [command_encoder setDepthStencilState:_depth_stencil_state];
         
         // set viewport
         [command_encoder setViewport:(MTLViewport){0.0, 0.0, _viewport_size.x, _viewport_size.y, 0.0, 1.0}];
@@ -519,6 +512,19 @@
 {
     _viewport_size.x = size.width;
     _viewport_size.y = size.height;
+    
+    // release old depth texture
+    if (_depth_texture) {
+        [_depth_texture release];
+    }
+    
+    // create new depth texture
+    MTLTextureDescriptor *depth_texture_desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                                                                                width:_viewport_size.x
+                                                                                               height:_viewport_size.y
+                                                                                            mipmapped:NO];
+    depth_texture_desc.usage = MTLTextureUsageRenderTarget;
+    _depth_texture = [_device newTextureWithDescriptor:depth_texture_desc];
 }
 
 - (NSDictionary *)measureFrameRate {
