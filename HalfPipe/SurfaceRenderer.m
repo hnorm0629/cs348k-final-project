@@ -51,6 +51,8 @@
     NSUInteger                  _rendering_verts_per_elem;
     
     id<MTLBuffer>               _colors;
+    MTLDepthStencilDescriptor * _depth_stencil_desc;
+    id<MTLDepthStencilState>    _depth_stencil_state;
     
     // temporary workspace arrays
     double*                     _p_reordered_soln;
@@ -193,6 +195,12 @@
         p_colors[i] = (vector_float4){1.0, 1.0, 1.0, 1.0};
     }
     
+    // create depth stencil descriptor
+    _depth_stencil_desc = [[MTLDepthStencilDescriptor alloc] init];
+    _depth_stencil_desc.depthCompareFunction = MTLCompareFunctionLess;
+    _depth_stencil_desc.depthWriteEnabled = YES;
+    _depth_stencil_state = [_device newDepthStencilStateWithDescriptor:_depth_stencil_desc];
+    
     // initialize initial vertices
     _orig_render_verts = (vector_float4*)malloc(2*_num_elems*_rendering_verts_per_elem*sizeof(vector_float4));
     _init_render_verts = (vector_float4*)malloc(2*_num_elems*_rendering_verts_per_elem*sizeof(vector_float4));
@@ -288,7 +296,6 @@
     free(elem_triangle_verts);
     free(elem_triangles);
     
-    
     free(positions);
     free(normals);
     free(bc_verts);
@@ -322,20 +329,31 @@
     [_device release];
     [_command_queue release];
     [_pipeline_state release];
-    [_solver_mesh release];
     
     [_matrices release];
+    [_solver_mesh release];
+    [_depth_stencil_desc release];
+    
+    free(_load_step);
+    
     [_render_verts release];
     [_render_triangles release];
+    [_colors release];
+    [_depth_stencil_desc release];
     
-    free(_orig_render_verts);
-    free(_load_step);
     free(_elements);
     free(_sf);
     
+    free(_orig_render_verts);
+    free(_init_render_verts);
     free(_p_reordered_soln);
     free(_p_elem_nodal_soln);
     free(_p_elem_render_soln);
+    
+    for (FrameData *frameData in _frameDataArray)
+        [frameData release];
+    [_frameDataArray release];
+    _frameDataArray = nil;
     
     [super dealloc];
 }
@@ -361,7 +379,7 @@
                                          location:(vector_double3){-1.0, 1.0, 1.0}];
                     atomic_fetch_add_explicit(_load_step, 1, memory_order_relaxed);
                 }
-                // TODO: allow force location update
+                // TODO: force location update
                 
                 vector_float4* p_render_verts = (vector_float4*)[_render_verts contents];
                 
@@ -470,12 +488,8 @@
         [command_encoder setFrontFacingWinding:MTLWindingCounterClockwise];
         [command_encoder setCullMode:MTLCullModeNone];
         
-        // create and set depth stencil state
-        MTLDepthStencilDescriptor *depthStencilDesc = [[MTLDepthStencilDescriptor alloc] init];
-        depthStencilDesc.depthCompareFunction = MTLCompareFunctionLess;
-        depthStencilDesc.depthWriteEnabled = YES;
-        id<MTLDepthStencilState> depthStencilState = [_device newDepthStencilStateWithDescriptor:depthStencilDesc];
-        [command_encoder setDepthStencilState:depthStencilState];
+        // set depth stencil state
+        [command_encoder setDepthStencilState:_depth_stencil_state];
         
         // set viewport
         [command_encoder setViewport:(MTLViewport){0.0, 0.0, _viewport_size.x, _viewport_size.y, 0.0, 1.0}];
