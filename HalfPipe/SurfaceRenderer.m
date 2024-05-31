@@ -110,7 +110,8 @@
     pipeline_desc.vertexFunction = [library newFunctionWithName: @"myVertexShader"];
     pipeline_desc.fragmentFunction = [library newFunctionWithName:@"myFragmentShader"];
     pipeline_desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-    pipeline_desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+//    pipeline_desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+    pipeline_desc.depthAttachmentPixelFormat = MTLPixelFormatInvalid;
     
     @autoreleasepool
     {
@@ -339,7 +340,6 @@
     [_render_verts release];
     [_render_triangles release];
     [_colors release];
-    [_depth_stencil_desc release];
     
     free(_elements);
     free(_sf);
@@ -466,16 +466,16 @@
         // create pipeline descriptor that describes how to render geometry
         MTLRenderPassDescriptor* pass_descriptor = [view currentRenderPassDescriptor];
         
-        // add depth texture
-        MTLTextureDescriptor *depthTextureDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
-                                                                                                    width:_viewport_size.x
-                                                                                                   height:_viewport_size.y
-                                                                                                mipmapped:NO];
-        depthTextureDesc.usage = MTLTextureUsageRenderTarget;
-        id<MTLTexture> depthTexture = [_device newTextureWithDescriptor:depthTextureDesc];
+//        // add depth texture
+//        MTLTextureDescriptor *depth_texture_desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+//                                                                                                    width:_viewport_size.x
+//                                                                                                   height:_viewport_size.y
+//                                                                                                mipmapped:NO];
+//        depth_texture_desc.usage = MTLTextureUsageRenderTarget;
+//        id<MTLTexture> depth_texture = [_device newTextureWithDescriptor:depth_texture_desc];
         
         // attach depth texture to pass descriptor
-        pass_descriptor.depthAttachment.texture = depthTexture;
+//        pass_descriptor.depthAttachment.texture = depth_texture;
         pass_descriptor.depthAttachment.loadAction = MTLLoadActionClear;
         pass_descriptor.depthAttachment.clearDepth = 1.0;
         pass_descriptor.depthAttachment.storeAction = MTLStoreActionStore;
@@ -489,7 +489,7 @@
         [command_encoder setCullMode:MTLCullModeNone];
         
         // set depth stencil state
-        [command_encoder setDepthStencilState:_depth_stencil_state];
+//        [command_encoder setDepthStencilState:_depth_stencil_state];
         
         // set viewport
         [command_encoder setViewport:(MTLViewport){0.0, 0.0, _viewport_size.x, _viewport_size.y, 0.0, 1.0}];
