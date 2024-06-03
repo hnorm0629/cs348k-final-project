@@ -17,6 +17,7 @@
 @property (nonatomic) NSUInteger vertexCount;
 @property (nonatomic) uint32_t *indices;
 @property (nonatomic) NSUInteger indexCount;
+@property (nonatomic) double *stresses;
 
 @property (nonatomic) double fps;
 @property (nonatomic) double runtime;
@@ -31,6 +32,7 @@
                               error:(double)error;
 - (void)copyVertexData:(vector_float4 *)vertexData;
 - (void)copyIndexData:(uint32_t *)indexData;
+- (void)copyStressData:(double *)stressData;
 
 @end
 

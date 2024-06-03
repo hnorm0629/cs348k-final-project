@@ -29,10 +29,10 @@
     _view.allowedTouchTypes = NSTouchTypeMaskDirect | NSTouchTypeMaskIndirect;
     
     // set up labels
-    self.errorLabel = [self createLabelWithFrame:NSMakeRect(20, 120, 200, 20) text:nil];
-    self.solutionLabel = [self createLabelWithFrame:NSMakeRect(20, 100, 200, 20) text:nil];
-    self.runtimeLabel = [self createLabelWithFrame:NSMakeRect(20, 80, 200, 20) text:@"Runtime: 0.0 sec"];
-    self.frameRateLabel = [self createLabelWithFrame:NSMakeRect(20, 60, 200, 20) text:@"Frame Rate: 0 FPS"];
+    self.errorLabel = [self createLabelWithFrame:NSMakeRect(20, 140, 200, 20) text:nil];
+    self.solutionLabel = [self createLabelWithFrame:NSMakeRect(20, 120, 200, 20) text:nil];
+    self.runtimeLabel = [self createLabelWithFrame:NSMakeRect(20, 100, 200, 20) text:@"Runtime: 0.0 sec"];
+    self.frameRateLabel = [self createLabelWithFrame:NSMakeRect(20, 80, 200, 20) text:@"Frame Rate: 0 FPS"];
     
     // add labels to view
     [self.view addSubview:self.errorLabel];
@@ -45,6 +45,15 @@
     _renderer.solutionLabel = self.solutionLabel;
     _renderer.frameRateLabel = self.frameRateLabel;
     _renderer.elapsedTimeLabel = self.runtimeLabel;
+    
+    // set up stress toggle
+    self.stressmapToggle = [[NSButton alloc] initWithFrame:NSMakeRect(20, 60, 200, 24)];
+    self.stressmapToggle.title = @"Show Stress Heatmap";
+    self.stressmapToggle.target = self;
+    self.stressmapToggle.enabled = NO;
+    [self.stressmapToggle setButtonType:NSButtonTypeSwitch];
+    [self.stressmapToggle setAction:@selector(stressmapToggleChecked:)];
+    [self.view addSubview:self.stressmapToggle];
 
     // set up heatmap toggle
     self.heatmapToggle = [[NSButton alloc] initWithFrame:NSMakeRect(20, 40, 200, 24)];
@@ -91,6 +100,11 @@
 - (void)heatmapToggleChecked:(NSButton *)sender {
     BOOL isChecked = [sender state] == NSControlStateValueOn;
     _renderer.toggleHeatmap = isChecked;
+}
+
+- (void)stressmapToggleChecked:(NSButton *)sender {
+    BOOL isChecked = [sender state] == NSControlStateValueOn;
+    _renderer.toggleStressmap = isChecked;
 }
 
 - (void)addGestureRecognizers {

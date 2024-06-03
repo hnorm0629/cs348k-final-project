@@ -22,6 +22,7 @@
 
 @property (nonatomic) BOOL isPseudoSimMode;
 @property (nonatomic) BOOL toggleHeatmap;
+@property (nonatomic) BOOL toggleStressmap;
 
 @property (nonatomic, strong) NSMutableArray<FrameData *> * _Nullable frameDataArray;
 @property (nonatomic) NSUInteger frameIndex;

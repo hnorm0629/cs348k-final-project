@@ -185,6 +185,84 @@ static void computeStrains(GeneralizedDisplacements u,
     
 }
 
+-(double*_Nonnull) computeStrainsFromDisplacements: (double const* __nonnull) displacements
+                           localDiffDisplacements0: (double const* __nonnull) localDiffDisplacements0
+                           localDiffDisplacements1: (double const* __nonnull) localDiffDisplacements1
+{
+    double const* disps = displacements;
+    double const* ddisps_0 = localDiffDisplacements0;
+    double const* ddisps_1 = localDiffDisplacements1;
+    NSUInteger displacementsStride = 8; // or 81?
+        
+    // Compute strains. Called 64 times per draw iteration (once per element).
+    for (NSUInteger i = 0; i < _number_of_points; ++i)
+    {
+        GeneralizedDisplacements u = {
+            .ubar = (vector_double3){
+                disps[i*displacementsStride + 0],
+                disps[i*displacementsStride + 1],
+                disps[i*displacementsStride + 2]},
+            .phi = (vector_double3){
+                disps[i*displacementsStride + 3],
+                disps[i*displacementsStride + 4],
+                disps[i*displacementsStride + 5]},
+            .psi = disps[i*displacementsStride + 6]
+        };
+        
+        GeneralizedDisplacements du_dz = {
+            .ubar = (vector_double3){
+                ddisps_0[i*displacementsStride + 0],
+                ddisps_0[i*displacementsStride + 1],
+                ddisps_0[i*displacementsStride + 2]},
+            .phi = (vector_double3){
+                ddisps_0[i*displacementsStride + 3],
+                ddisps_0[i*displacementsStride + 4],
+                ddisps_0[i*displacementsStride + 5]},
+            .psi = ddisps_0[i*displacementsStride + 6]
+        };
+        
+        GeneralizedDisplacements du_dn = {
+            .ubar = (vector_double3){
+                ddisps_1[i*displacementsStride + 0],
+                ddisps_1[i*displacementsStride + 1],
+                ddisps_1[i*displacementsStride + 2]},
+            .phi = (vector_double3){
+                ddisps_1[i*displacementsStride + 3],
+                ddisps_1[i*displacementsStride + 4],
+                ddisps_1[i*displacementsStride + 5]},
+            .psi = ddisps_1[i*displacementsStride + 6]
+        };
+        
+        vector_double3 a1 = (vector_double3){_a1[i*_g_cov_stride + 0], _a1[i*_g_cov_stride + 1], _a1[i*_g_cov_stride + 2]};
+        vector_double3 a2 = (vector_double3){_a2[i*_g_cov_stride + 0], _a2[i*_g_cov_stride + 1], _a2[i*_g_cov_stride + 2]};
+        vector_double3 nhat = (vector_double3){
+            _nhat[i*_g_cov_stride + 0],
+            _nhat[i*_g_cov_stride + 1],
+            _nhat[i*_g_cov_stride + 2]};
+        vector_double3 dnhat_dz = (vector_double3){
+            _dnhat_dz[i*_g_cov_stride + 0],
+            _dnhat_dz[i*_g_cov_stride + 1],
+            _dnhat_dz[i*_g_cov_stride + 2]};
+        vector_double3 dnhat_dn = (vector_double3){
+            _dnhat_dn[i*_g_cov_stride + 0],
+            _dnhat_dn[i*_g_cov_stride + 1],
+            _dnhat_dn[i*_g_cov_stride + 2]};
+        
+        CovariantStrains e0, e1;
+        
+        computeStrains(u, du_dz, du_dn, a1, a2, nhat, dnhat_dz, dnhat_dn, &e0, &e1);
+        
+        _strain_0[i*_strain_stride + 0] = e0.part0.x;
+        _strain_0[i*_strain_stride + 1] = e0.part0.y;
+        _strain_0[i*_strain_stride + 2] = e0.part0.z;
+        _strain_0[i*_strain_stride + 3] = e0.part0.w;
+        _strain_0[i*_strain_stride + 4] = e0.part1.x;
+        _strain_0[i*_strain_stride + 5] = e0.part1.y;
+    }
+    
+    return _strain_0; // strains for each point
+}
+
 -(void) computeStrainsFromDisplacements: (double const* __nonnull) displacements
                     displacementsStride: (NSUInteger) displacementsStride
 {
@@ -224,7 +302,7 @@ static void computeStrains(GeneralizedDisplacements u,
     @public
     
     NSUInteger                  _degrees_of_freedom;
-    MaterialParameters  _material_params;
+    MaterialParameters          _material_params;
 }
 
 -(NSUInteger) degreesOfFreedom { return _degrees_of_freedom; }
@@ -234,9 +312,9 @@ static void computeStrains(GeneralizedDisplacements u,
     self = [super init];
     if (self == nil)
         return nil;
+    self.modelState = nil;
     
     _degrees_of_freedom = 7;
-    
     _material_params = materialParameters;
 
     return self;
@@ -256,7 +334,8 @@ static void computeStrains(GeneralizedDisplacements u,
                         localDiffNormals2: (vector_double3 const* __nonnull) localDiffNormals1
                            numberOfPoints: (NSUInteger) numberOfPoints
 {
-    ModelState* result = [[ModelState alloc] initWithNumberOfPoints: numberOfPoints];
+    self.modelState = [[ModelState alloc] initWithNumberOfPoints: numberOfPoints];
+    ModelState* result = self.modelState;
     
     vector_double3 const* pA1 = localDiffCoordinates0;
     vector_double3 const* pA2 = localDiffCoordinates1;
@@ -458,7 +537,7 @@ static void computeStrains(GeneralizedDisplacements u,
     NSAssert((startPoint + numPoints) <= numTotalPoints, @"error");
     
     [state computeStrainsFromDisplacements: displacements
-                              displacementsStride: displacementsStride];
+                       displacementsStride: displacementsStride];
     
     double const* disps = displacements + startPoint*displacementsStride;
     double const* ddisps_0 = localDiffDisplacements0 + startPoint*displacementsStride;
@@ -673,6 +752,7 @@ static void computeStrains(GeneralizedDisplacements u,
                             start_dnhat_dn, state->_g_cov_stride,
                              numPoints,
                              stiffnessCoefficients + 8*stiffOffset + startPoint*stiffnessCoefficientsStride, stiffnessCoefficientsStride);
+    
 }
 
 -(void) computeForceAtCoordinate: (vector_double3) coordinate

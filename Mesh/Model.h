@@ -48,7 +48,11 @@ typedef struct CovariantStrains
 
 -(nonnull instancetype) initWithNumberOfPoints: (NSUInteger) numberOfPoints;
 
-// Helper function for computing strains.
+// Helper functions for computing strains.
+-(double*_Nonnull) computeStrainsFromDisplacements: (double const* __nonnull) displacements
+                           localDiffDisplacements0: (double const* __nonnull) localDiffDisplacements0
+                           localDiffDisplacements1: (double const* __nonnull) localDiffDisplacements1;
+
 -(void) computeStrainsFromDisplacements: (double const* __nonnull) displacements
                     displacementsStride: (NSUInteger) displacementsStride;
 
@@ -56,6 +60,8 @@ typedef struct CovariantStrains
 
 // A 7-parameter shell model.
 @interface Model : NSObject<AFEKModelSource2D>
+
+@property (nonatomic, strong, nullable) ModelState *modelState;
 
 -(nonnull instancetype) initWithMaterialParameters: (MaterialParameters) materialParameters;
 
