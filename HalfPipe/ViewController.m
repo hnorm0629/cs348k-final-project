@@ -67,6 +67,10 @@
     
     // add gesture recognizers
     [self addGestureRecognizers];
+    
+    // init error and soln arrays
+    self.errorValues = [NSMutableArray array];
+    self.solutionValues = [NSMutableArray array];
 }
 
 - (void)setRepresentedObject:(id)representedObject {
@@ -117,6 +121,11 @@
         float zoom = (gesture.magnification >= 0) ? 1.0 : -1.0;
         [_renderer setZoom:zoom];
     }
+}
+
+- (void)addErrorValue:(float)error solutionValue:(float)solution {
+    [self.errorValues addObject:@(error)];
+    [self.solutionValues addObject:@(solution)];
 }
 
 @end

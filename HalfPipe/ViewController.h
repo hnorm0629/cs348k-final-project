@@ -17,5 +17,8 @@
 
 @property (nonatomic, strong) NSPanGestureRecognizer *panGestureRecognizer;
 
+@property (nonatomic, strong) NSMutableArray<NSNumber *> *errorValues;
+@property (nonatomic, strong) NSMutableArray<NSNumber *> *solutionValues;
+
 @end
 

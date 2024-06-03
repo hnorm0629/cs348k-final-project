@@ -424,9 +424,12 @@
                 double fps = [frameRateInfo[@"fps"] doubleValue];
                 double runtime = [frameRateInfo[@"runtime"] doubleValue];
                 
-                // Get solution and error values from the solver
+                // get solution and error values from the solver
                 __block double solution = *psoln;
                 __block double error = err;
+                
+                // pass values to view controller array
+                [self.viewController addErrorValue:error solutionValue:solution];
                 
                 // get vertex, matrix, index data
                 vector_float4 *vertexData = (vector_float4 *)[_render_verts contents];
@@ -506,6 +509,8 @@
         [command_buffer presentDrawable:view.currentDrawable];
         [command_buffer commit];
     }
+    
+    [self.viewController drawGraphInView:self.viewController];
 }
 
 - (void)mtkView:(nonnull MTKView*)view drawableSizeWillChange:(CGSize)size
