@@ -24,7 +24,7 @@
         _indexCount = indexCount;
         _indices = (uint32_t *)malloc(sizeof(uint32_t) * indexCount);
         
-        _stresses = (double *)malloc(sizeof(double) * (vertexCount / 2));
+        _stresses = (double *)malloc(sizeof(double) * (vertexCount/2));
         
         _fps = fps;
         _runtime = runtime;
@@ -37,6 +37,7 @@
 - (void)dealloc {
     free(_vertices);
     free(_indices);
+    free(_stresses);
     
     [super dealloc];
 }
@@ -50,7 +51,7 @@
 }
 
 - (void)copyStressData:(double *)stressData {
-    memcpy(_stresses, stressData, sizeof(double) * _vertexCount);
+    memcpy(_stresses, stressData, sizeof(double) * (_vertexCount/2));
 }
 
 @end

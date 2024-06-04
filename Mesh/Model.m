@@ -260,7 +260,7 @@ static void computeStrains(GeneralizedDisplacements u,
         _strain_0[i*_strain_stride + 5] = e0.part1.y;
     }
     
-    return _strain_0; // strains for each point
+    return _strain_0;
 }
 
 -(void) computeStrainsFromDisplacements: (double const* __nonnull) displacements

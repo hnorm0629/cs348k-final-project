@@ -44,7 +44,6 @@
     NSUInteger*                 _elements;
     
     NSUInteger                  _strain_stride;
-    NSUInteger                  _number_of_points;
     
     double*                     _sf;
     double*                     _ldsf0;
@@ -58,7 +57,7 @@
     NSUInteger                  _rendering_verts_per_elem;
     
     id<MTLBuffer>               _colors;
-    MTLDepthStencilDescriptor * _depth_stencil_desc;
+    MTLDepthStencilDescriptor*  _depth_stencil_desc;
     id<MTLDepthStencilState>    _depth_stencil_state;
     id<MTLTexture>              _depth_texture;
     
@@ -333,9 +332,8 @@
     _p_elem_render_soln_diff1 = (double*)malloc(_rendering_verts_per_elem*7*sizeof(double));
     
     _strain_stride = 8;
-    _number_of_points = 81;
-    _strains = (double*)malloc(_strain_stride * _number_of_points * sizeof(double));
-    _stresses = (double*)malloc(_num_elems * _rendering_verts_per_elem * sizeof(double));
+    _strains = (double*)malloc(_strain_stride * _verts_per_elem * sizeof(double));
+    _stresses = (double*)malloc(_verts_per_elem * _num_elems * sizeof(double));
     
     return self;
 }
@@ -378,7 +376,6 @@
     for (FrameData *frameData in _frameDataArray)
         [frameData release];
     [_frameDataArray release];
-    _frameDataArray = nil;
     
     [super dealloc];
 }
@@ -406,7 +403,6 @@
                 }
                 
                 vector_float4* p_render_verts = (vector_float4*)[_render_verts contents];
-                
                 for (NSUInteger i = 0; i < _num_elems; ++i)
                 {
                     // collect displacements for this element
@@ -438,7 +434,7 @@
                                                    localDiffDisplacements1:_p_elem_render_soln_diff1];
                     
                     // convert strains to stress components
-                    for (NSUInteger j = 0; j < _number_of_points; ++j)
+                    for (NSUInteger j = 0; j < _verts_per_elem; ++j)
                     {
                         [self calculateStressFromStrains:i
                                                    point:j];
@@ -574,9 +570,12 @@
     NSUInteger i = elemIdx;
     NSUInteger j = pntIdx;
     
+    // calculate global index
+//    NSUInteger const* p_elem = _elements + (i * _verts_per_elem);
+//    NSUInteger global_idx = p_elem[j];
+    
     double E = 10.5e6;
     double nu = 0.3125;
-
     double factor1 = E / (1.0 + nu);
     double factor2 = nu / (1.0 - 2.0 * nu);
     
@@ -601,10 +600,14 @@
         ((sigma11 - sigma22) * (sigma11 - sigma22) +
         (sigma22 - sigma33) * (sigma22 - sigma33) +
         (sigma33 - sigma11) * (sigma33 - sigma11) +
-        6 * (sigma23 * sigma23 + sigma13 * sigma13 + sigma12 * sigma12)) / 2.0
+        6.0 * (sigma23 * sigma23 + sigma13 * sigma13 + sigma12 * sigma12)) / 2.0
     );
-    NSUInteger stressIdx = i * _number_of_points + j;
-    _stresses[stressIdx] = vonMisesStress;
+    NSUInteger stressIdx = i * _verts_per_elem + j;
+    if (stressIdx > 0 && (isnan(vonMisesStress) || vonMisesStress < 0.001)) {
+        _stresses[stressIdx] = _stresses[stressIdx-1];
+    } else {
+        _stresses[stressIdx] = vonMisesStress;
+    }
 }
 
 - (NSDictionary *)measureFrameRate {
@@ -669,7 +672,7 @@
     // populate buffer contents with frame data
     memcpy([_render_verts contents], frameData.vertices, sizeof(vector_float4) * frameData.vertexCount);
     memcpy([_render_triangles contents], frameData.indices, sizeof(uint32_t) * frameData.indexCount);
-    // memcpy(_stresses, frameData.stresses, sizeof(double) * frameData.vertexCount);
+    memcpy(_stresses, frameData.stresses, sizeof(double) * (frameData.vertexCount/2));
     
     // update labels (not fps)
     self.errorLabel.stringValue = [NSString stringWithFormat:@"Error: %.4f", frameData.error];
@@ -707,7 +710,8 @@
     
     // create displacement magnitudes array
     double displacementMagnitudes[5184] = {0.0};
-    double maxDisplacement = 0.0;
+    double maxDisplacement = DBL_MIN;
+    double minDisplacement = DBL_MAX;
 
     // for each vertex position (alternates with vertex norm)
     for (NSUInteger v = 0; v < num_idxs; v += 2) {
@@ -717,10 +721,11 @@
         NSUInteger d = v / 2;
         displacementMagnitudes[d] = displacementMagnitude;
         
-        // update maximum displacement
-        if (displacementMagnitude > maxDisplacement) {
+        // update maximum and minimum displacement
+        if (displacementMagnitude > maxDisplacement)
             maxDisplacement = displacementMagnitude;
-        }
+        if (displacementMagnitude < minDisplacement)
+            minDisplacement = displacementMagnitude;
     }
 
     // apply heatmap based on toggle
@@ -728,8 +733,9 @@
     {
         vector_float4 vertexColor = (vector_float4){1.0, 1.0, 1.0, 1.0};
         if (self.toggleHeatmap == YES) {
-            NSColor *ns_color = [self mapDisplacementToColor:displacementMagnitudes[v]
-                                         withMaxDisplacement:maxDisplacement];
+            NSColor *ns_color = [self mapToColor:displacementMagnitudes[v]
+                                         withMax:maxDisplacement
+                                         withMin:minDisplacement];
             vertexColor = (vector_float4){
                 ns_color.redComponent,
                 ns_color.greenComponent,
@@ -755,29 +761,47 @@
 }
 
 - (void)updateStressmap {
-    double* stresses = _stresses;
     vector_float4* colors = (vector_float4*)[_colors contents];
-    
     NSUInteger num_verts = _num_elems * _rendering_verts_per_elem;
     
     // find max stress
-    double maxStress = 0.0;
-
-    // for each vertex position (alternates with vertex norm)
-    for (NSUInteger v = 0; v < num_verts; ++v) {
-        double currStress = stresses[v];
-        if (currStress > maxStress) {
-            maxStress = currStress;
-        }
+//    double maxStress = DBL_MIN;
+//    double minStress = DBL_MAX;
+//
+//    for (NSUInteger v = 0; v < num_verts; ++v) {
+//        double currStress = _stresses[v];
+//        NSLog(@"_stresses[%lu] = %f", v, currStress);
+//        if (currStress > maxStress)
+//            maxStress = currStress;
+//        if (currStress < minStress)
+//            minStress = currStress;
+//    }
+//    NSLog(@"minStress = %f", minStress);
+//    NSLog(@"maxStress = %f", maxStress);
+    
+    // standard deviation clipping
+    double sum = 0.0;
+    double sumSquared = 0.0;
+    for (NSUInteger i = 0; i < num_verts; i++) {
+        sum += _stresses[i];
+        sumSquared += _stresses[i] * _stresses[i];
     }
+    double mean = sum / num_verts;
+    double variance = (sumSquared / num_verts) - (mean * mean);
+    double stdDev = sqrt(variance);
+
+    // determine clipping bounds
+    double lowerBound = mean - 2 * stdDev;
+    double upperBound = mean + 2 * stdDev;
 
     // apply heatmap based on toggle
     for (NSUInteger v = 0; v < num_verts; ++v)
     {
         vector_float4 vertexColor = (vector_float4){1.0, 1.0, 1.0, 1.0};
         if (self.toggleStressmap == YES) {
-            NSColor *ns_color = [self mapDisplacementToColor:stresses[v]
-                                         withMaxDisplacement:maxStress];
+            NSColor *ns_color = [self mapToColor:_stresses[v]
+                                         withMax:upperBound
+                                         withMin:lowerBound];
             vertexColor = (vector_float4){
                 ns_color.redComponent,
                 ns_color.greenComponent,
@@ -790,31 +814,36 @@
     }
 }
 
-- (NSColor *)mapDisplacementToColor:(double)displacement withMaxDisplacement:(double)maxDisplacement {
-    double normalizedDisplacement = displacement / maxDisplacement;
+- (NSColor *)mapToColor:(double)value withMax:(double)max withMin:(double)min {
+    double normalized = 0.0;
+//    if (max != min)
+//        normalized = (normalized - min) / (max - min);
+    if (value < min) value = min;
+    if (value > max) value = max;
+    normalized = (value - min) / (max - min);
     
     // map displacement magnitude to color
     NSColor *color;
-    if (normalizedDisplacement < 0.25) {
+    if (normalized < 0.25) {
         // interpolate between blue and green
         color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:0.0 green:0.0 blue:1.0 alpha:1.0]
                                          to:[NSColor colorWithCalibratedRed:0.0 green:1.0 blue:0.0 alpha:1.0]
-                                 withFactor:(normalizedDisplacement / 0.25)];
-    } else if (normalizedDisplacement < 0.5) {
+                                 withFactor:(normalized / 0.25)];
+    } else if (normalized < 0.5) {
         // interpolate between green and yellow
         color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:0.0 green:1.0 blue:0.0 alpha:1.0]
                                        to:[NSColor colorWithCalibratedRed:1.0 green:1.0 blue:0.0 alpha:1.0]
-                               withFactor:((normalizedDisplacement - 0.25) / 0.25)];
-    } else if (normalizedDisplacement < 0.75) {
+                               withFactor:((normalized - 0.25) / 0.25)];
+    } else if (normalized < 0.75) {
         // interpolate between yellow and red
         color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:1.0 green:1.0 blue:0.0 alpha:1.0]
                                        to:[NSColor colorWithCalibratedRed:1.0 green:0.0 blue:0.0 alpha:1.0]
-                               withFactor:((normalizedDisplacement - 0.5) / 0.25)];
+                               withFactor:((normalized - 0.5) / 0.25)];
     } else {
         // interpolate between yellow and red
-        color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:1.0 green:1.0 blue:0.0 alpha:1.0]
-                                       to:[NSColor colorWithCalibratedRed:1.0 green:0.0 blue:0.0 alpha:1.0]
-                               withFactor:((normalizedDisplacement - 0.5) / 0.25)];
+        color = [self interpolateColorFrom:[NSColor colorWithCalibratedRed:1.0 green:0.0 blue:0.0 alpha:1.0]
+                                       to:[NSColor colorWithCalibratedRed:0.5 green:0.0 blue:0.0 alpha:1.0]
+                               withFactor:((normalized - 0.75) / 0.25)];
     }
     
     return color;
